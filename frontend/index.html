@@ -1,0 +1,1926 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>智慧醫療陪伴系統</title>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css?v=19">
+</head>
+
+<body>
+
+  <!-- 病房背景 -->
+  <div class="room-bg">
+    <div class="curtain-l"></div>
+    <div class="curtain-r"></div>
+    <div class="window-light"></div>
+  </div>
+
+  <!-- ══ SCREEN 0: 角色選擇 ══════════════════════ -->
+  <div class="screen active" id="screen-role">
+    <div class="topbar">
+      <div class="sys-title" style="font-size:1rem;color:var(--blue-dark)">智慧醫療陪伴系統</div>
+      <div class="topbar-right"></div>
+    </div>
+    <div class="role-title-wrap">
+      <div class="sys-title">智慧醫療陪伴系統</div>
+      <div class="sys-sub">請點選您的登入身分</div>
+    </div>
+    <div class="role-cards">
+      <div class="role-card patient" data-role="patient">
+        <div class="role-icon">🛌</div>
+        <span class="role-badge">病患端</span>
+        <div class="role-name">我是病患</div>
+        <div class="role-desc">觀看動態街景・傳達狀態留言</div>
+      </div>
+      <div class="role-card doctor" data-role="doctor">
+        <div class="role-icon">👨‍⚕️</div>
+        <span class="role-badge">醫生端</span>
+        <div class="role-name">我是醫生</div>
+        <div class="role-desc">錄製語音回覆病人狀態</div>
+      </div>
+      <div class="role-card crowd" data-role="crowd">
+        <div class="role-icon">📱</div>
+        <span class="role-badge">群眾端</span>
+        <div class="role-name">我是群眾</div>
+        <div class="role-desc">上傳街景影音並兌換獎勵點數</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 1: 病患登入 ══════════════════════ -->
+  <div class="screen" id="screen-login">
+    <div class="topbar">
+      <button class="back-btn" data-back="screen-role">← 返回</button>
+      <div class="topbar-center"><span class="topbar-label">病患端登入介面</span></div>
+      <div class="topbar-right"></div>
+    </div>
+    <div class="sys-title" style="margin-top:12px">智慧醫療陪伴系統</div>
+    <div class="card login-card" style="margin-top:20px">
+      <div class="login-header">
+        <div style="font-size:3.2rem;margin-bottom:6px;line-height:1">😊</div>
+        <h2>您好，請登入帳號</h2>
+      </div>
+      <div class="form-group">
+        <input class="form-input" type="text" id="userId" placeholder="帳號輸入：" value="patient_503B" />
+      </div>
+      <div class="form-group">
+        <input class="form-input" type="password" id="password" placeholder="密碼輸入：" value="123" />
+      </div>
+      <div class="form-group">
+        <input class="form-input" type="text" id="bedInput" placeholder="床號輸入：" value="503-B" />
+      </div>
+      <div class="login-actions">
+        <button class="btn btn-secondary" style="flex:0.7" onclick="openAuthRegister('patient')">註冊帳號</button>
+        <button class="btn btn-primary" id="loginBtn">登入</button>
+        <button class="btn btn-secondary" style="flex:0.7" onclick="openAuthForgot('patient')">忘記密碼</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 1b: 醫生登入 ══════════════════════ -->
+  <div class="screen" id="screen-doctor-login">
+    <div class="topbar">
+      <button class="back-btn" data-back="screen-role">← 返回</button>
+      <div class="topbar-center"><span class="topbar-label">醫生端登入介面</span></div>
+      <div class="topbar-right"></div>
+    </div>
+    <div class="sys-title" style="margin-top:12px">智慧醫療陪伴系統</div>
+    <div class="card login-card" style="margin-top:20px">
+      <div class="login-header">
+        <div style="font-size:3.2rem;margin-bottom:6px;line-height:1">👨‍⚕️</div>
+        <h2>醫師端登入</h2>
+      </div>
+      <div class="form-group">
+        <input class="form-input" type="text" id="doctorUserId" placeholder="帳號輸入：" value="doctor_001" />
+      </div>
+      <div class="form-group">
+        <input class="form-input" type="password" id="doctorPassword" placeholder="密碼輸入：" value="123" />
+      </div>
+      <div class="login-actions">
+        <button class="btn btn-secondary" style="flex:0.7" onclick="openAuthRegister('doctor')">註冊帳號</button>
+        <button class="btn btn-primary" id="doctorLoginBtn">登入</button>
+        <button class="btn btn-secondary" style="flex:0.7" onclick="openAuthForgot('doctor')">忘記密碼</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 1c: 群眾登入 ══════════════════════ -->
+  <div class="screen" id="screen-crowd-login">
+    <div class="topbar">
+      <button class="back-btn" data-back="screen-role">← 返回</button>
+      <div class="topbar-center"><span class="topbar-label orange">群眾端登入介面</span></div>
+      <div class="topbar-right"></div>
+    </div>
+    <div class="sys-title" style="margin-top:12px">智慧醫療陪伴系統</div>
+    <div class="card login-card" style="margin-top:20px">
+      <div class="login-header">
+        <div style="font-size:3.2rem;margin-bottom:6px;line-height:1">📱</div>
+        <h2>群眾端登入</h2>
+      </div>
+      <div class="form-group">
+        <input class="form-input" type="text" id="crowdUserId" placeholder="帳號輸入：" value="crowd_001" />
+      </div>
+      <div class="form-group">
+        <input class="form-input" type="password" id="crowdPassword" placeholder="密碼輸入：" value="123" />
+      </div>
+      <div class="login-actions">
+        <button class="btn btn-secondary" style="flex:0.7" onclick="openAuthRegister('crowd')">註冊帳號</button>
+        <button class="btn btn-primary" id="crowdLoginBtn">登入</button>
+        <button class="btn btn-secondary" style="flex:0.7" onclick="openAuthForgot('crowd')">忘記密碼</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 2: 病患主畫面 ════════════════════ -->
+  <div class="screen" id="screen-patient-home">
+    <div class="topbar">
+      <span class="topbar-label green">首頁（病患端）</span>
+      <!-- 絕對置中的系統標題 -->
+      <div class="topbar-center">
+        <div class="sys-title" style="font-size:1.1rem">智慧醫療陪伴系統</div>
+      </div>
+      <div class="topbar-right">
+        <div class="avatar-btn">🏥</div>
+        <button class="icon-btn" style="position:relative" onclick="openPatientFriendPanel()" id="patientNotifBell">
+          🔔
+          <span id="patientNotifBadge" style="display:none;position:absolute;top:2px;right:2px;
+            background:#e74c3c;color:white;font-size:0.5rem;font-weight:800;
+            min-width:14px;height:14px;border-radius:7px;line-height:14px;text-align:center;padding:0 3px"></span>
+        </button>
+        <button class="icon-btn">⚙️</button>
+        <button class="icon-btn" data-back="screen-role">↩</button>
+      </div>
+    </div>
+
+    <div style="position:fixed;bottom:14px;left:16px;z-index:50">
+      <span class="room-tag" id="patientBedTag">503-B號病房</span>
+    </div>
+
+    <!-- 病患專屬的寬版儀表板配置 -->
+    <div class="patient-dashboard">
+
+      <!-- 問候與資訊面板 -->
+      <div class="welcome-panel">
+        <div class="date-display" id="currentDateDisplay">--年--月--日</div>
+        <h2>早安！<span id="welcomeName">貴賓</span></h2>
+        <p>今天覺得如何呢？請點選下方卡片選擇您需要的服務：</p>
+      </div>
+
+      <!-- 功能導覽卡 -->
+      <div class="func-cards">
+        <button class="func-card blue-card" id="btnAnyView">
+          <div class="func-card-icon">🗺️</div>
+          <div class="func-card-name">任意視界</div>
+          <div class="func-card-desc">探索國內外著名景點，透過即時與群眾影像放鬆您的心情。</div>
+        </button>
+        <button class="func-card green-card" id="btnMedical">
+          <div class="func-card-icon">👨‍⚕️</div>
+          <div class="func-card-name">醫聲相伴</div>
+          <div class="func-card-desc">與您的主治醫師進行雙向溝通，隨時傳遞您的心情與需求。</div>
+        </button>
+        <button class="func-card" id="btnPatientFriends"
+          style="background:linear-gradient(135deg,#f5a623,#e8871a)"
+          onclick="openPatientFriendPanel()">
+          <div class="func-card-icon">💬</div>
+          <div class="func-card-name">好友訊息</div>
+          <div class="func-card-desc">與關心您的志工好友聊天，分享生活點滴。</div>
+        </button>
+        <button class="func-card" id="btnPatientShareFilm"
+          style="background:linear-gradient(135deg,#5b8dd9,#3a6dbf)"
+          onclick="openPatientSharePanel()">
+          <div class="func-card-icon">📤</div>
+          <div class="func-card-name">指定親友拍攝</div>
+          <div class="func-card-desc">將拍攝任務分享給家人或朋友，讓他們幫你記錄美好時刻。</div>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 3: 任意視界 ════════════════════ -->
+  <div class="screen" id="screen-anyview">
+    <div class="topbar">
+      <span class="topbar-label">任意視界（病患端）</span>
+      <div style="flex:1"></div>
+      <div class="topbar-right">
+        <button class="back-btn" data-back="screen-patient-home">🏠 回到首頁</button>
+        <!-- 視覺處方按鈕已移至下方引導列（btnRxPanelGuide），此處保留空 span 供 JS 相容性 -->
+        <span id="btnRxPanel" style="display:none"></span>
+        <span id="rxPanelBadge" style="display:none"></span>
+        <div class="avatar-btn">🏥</div>
+        <button class="icon-btn">⚙️</button>
+        <button class="icon-btn" data-back="screen-role">↩</button>
+      </div>
+    </div>
+
+    <!-- 🏥 視覺處方 Modal -->
+    <div id="rxPanelOverlay" onclick="closeRxPanel()"
+      style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:200"></div>
+    <div id="rxPanelDrawer"
+      style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+             width:min(520px,94vw);max-height:80vh;background:white;border-radius:16px;
+             box-shadow:0 8px 40px rgba(0,0,0,0.25);z-index:201;overflow:hidden;flex-direction:column">
+      <div style="padding:16px 20px 12px;background:linear-gradient(135deg,#2d8f61,#3aaf7a);color:white;
+                  display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-weight:900;font-size:1rem">🏥 我的視覺處方</div>
+          <div id="rxPanelSubtitle" style="font-size:0.75rem;opacity:.85;margin-top:2px"></div>
+        </div>
+        <button onclick="closeRxPanel()"
+          style="background:rgba(255,255,255,0.2);border:none;color:white;border-radius:50%;
+                 width:28px;height:28px;cursor:pointer;font-size:1rem;line-height:28px">✕</button>
+      </div>
+      <div style="overflow-y:auto;padding:16px 20px 20px">
+        <div id="rxPanelInfo" style="background:#f0faf4;border-radius:10px;padding:12px 14px;margin-bottom:14px;
+             border-left:4px solid #2d8f61;font-size:0.83rem;color:#2d8f61"></div>
+        <div style="font-size:0.8rem;font-weight:800;color:#555;margin-bottom:8px">📹 志工為您拍攝的影片</div>
+        <div id="prescriptionVideosList" style="display:flex;flex-wrap:wrap;gap:10px"></div>
+        <div id="rxPanelNoVideo" style="display:none;text-align:center;padding:20px;font-size:0.8rem;color:#aaa">
+          尚無影片，志工正在為您拍攝中 📷
+        </div>
+      </div>
+    </div>
+
+    <div style="position:fixed;bottom:14px;left:16px;z-index:50">
+      <span class="room-tag">503-B號病房</span>
+    </div>
+    <!-- hidden stubs for JS compat -->
+    <div id="rxNotifBanner" style="display:none"><span id="rxNotifText"></span></div>
+    <div id="prescriptionVideosSection" style="display:none"></div>
+
+    <!-- 心願清單 Overlay & Modal（病患端） -->
+    <div id="wishlistOverlay" onclick="closeWishlistModal()"
+      style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:300"></div>
+    <div id="wishlistModal"
+      style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+             width:min(480px,92vw);max-height:82vh;background:white;border-radius:18px;
+             box-shadow:0 8px 40px rgba(0,0,0,0.28);z-index:301;overflow:hidden;flex-direction:column">
+      <!-- 標題列 -->
+      <div style="padding:16px 20px 12px;background:linear-gradient(135deg,#f5a623,#ffc83a);color:white;
+                  display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+        <div>
+          <div style="font-weight:900;font-size:1.05rem">🌟 我的心願清單</div>
+          <div style="font-size:0.75rem;opacity:.88;margin-top:2px">許下心願，讓志工帶您去看世界</div>
+        </div>
+        <button onclick="closeWishlistModal()"
+          style="background:rgba(255,255,255,0.22);border:none;color:white;border-radius:50%;
+                 width:30px;height:30px;cursor:pointer;font-size:1.1rem;line-height:30px;font-weight:700">✕</button>
+      </div>
+      <!-- 新增心願表單 -->
+      <div style="padding:14px 18px 10px;border-bottom:1px solid #f0f0f0;flex-shrink:0">
+        <div style="font-size:0.82rem;font-weight:800;color:#555;margin-bottom:8px">✏️ 新增心願</div>
+        <input id="wishPlaceInput" type="text" placeholder="地點名稱（必填，例如：陽明山竹子湖）"
+          style="width:100%;padding:10px 12px;border:1.5px solid #e0e0e0;border-radius:10px;
+                 font-size:0.87rem;box-sizing:border-box;font-family:inherit;outline:none;
+                 transition:border-color .2s" onfocus="this.style.borderColor='#f5a623'"
+          onblur="this.style.borderColor='#e0e0e0'">
+        <textarea id="wishDescInput" placeholder="描述（選填，例如：想看春天的海芋花田）"
+          style="width:100%;margin-top:8px;padding:10px 12px;border:1.5px solid #e0e0e0;border-radius:10px;
+                 font-size:0.83rem;resize:none;min-height:62px;box-sizing:border-box;font-family:inherit;
+                 outline:none;transition:border-color .2s" onfocus="this.style.borderColor='#f5a623'"
+          onblur="this.style.borderColor='#e0e0e0'"></textarea>
+        <button onclick="addWish()"
+          style="width:100%;margin-top:8px;padding:11px;border-radius:10px;border:none;
+                 background:linear-gradient(135deg,#f5a623,#ffc83a);color:white;
+                 font-weight:800;font-size:0.92rem;cursor:pointer;font-family:inherit">
+          🌟 許願
+        </button>
+      </div>
+      <!-- 心願列表 -->
+      <div style="overflow-y:auto;padding:12px 18px 18px;flex:1">
+        <div style="font-size:0.82rem;font-weight:800;color:#555;margin-bottom:10px">📋 我的心願</div>
+        <div id="wishlistItems">
+          <div style="text-align:center;padding:20px;color:#bbb;font-size:0.85rem">載入中…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="anyview-layout">
+
+      <!-- ① 引導說明條 + 心願 + 視覺處方按鈕 -->
+      <div class="anyview-guide" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span>📹 點擊地圖攝影機圖標觀看即時影像</span>
+          <span class="ag-sep">·</span>
+          <span>🔍 搜尋任一地點探索世界</span>
+          <span class="ag-sep">·</span>
+          <span>🟠 橘色圖標為群眾上傳影片</span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
+          <button id="btnRxPanelGuide" onclick="openRxPanel()"
+            style="display:none;position:relative;padding:7px 14px;border-radius:20px;border:none;cursor:pointer;
+                   background:linear-gradient(135deg,#2d8f61,#3aaf7a);color:white;font-size:0.8rem;
+                   font-weight:800;font-family:inherit;box-shadow:0 2px 8px rgba(45,143,97,0.35);white-space:nowrap">
+            🏥 視覺處方
+            <span id="rxPanelBadgeGuide" style="display:none;position:absolute;top:-4px;right:-4px;
+              background:#e74c3c;color:white;font-size:0.5rem;font-weight:800;
+              min-width:14px;height:14px;border-radius:7px;line-height:14px;text-align:center;padding:0 3px"></span>
+          </button>
+          <button onclick="openWishlistModal()"
+            style="padding:7px 14px;border-radius:20px;border:none;cursor:pointer;
+                   background:linear-gradient(135deg,#f5a623,#ffc83a);color:white;font-size:0.8rem;
+                   font-weight:800;font-family:inherit;box-shadow:0 2px 8px rgba(245,166,35,0.4);
+                   white-space:nowrap">🌟 我的心願</button>
+        </div>
+      </div>
+
+      <!-- ② 主內容（影像 + 地圖） -->
+      <div class="anyview-main">
+
+        <!-- 影像欄 -->
+        <div class="anyview-col">
+          <div class="anyview-panel-hdr">
+            <span id="videoPanelTitle">📺 選擇景點開始觀看</span>
+            <button id="btnCloseStream" class="close-stream-btn" style="display:none" title="關閉影像">✕ 關閉</button>
+          </div>
+          <div class="video-panel">
+            <!-- MJPEG 即時畫面 -->
+            <img id="camStream" style="width:100%;height:100%;object-fit:contain;background:#000;display:none;" alt="即時影象">
+            <!-- 群眾影片播放器（本地影片） -->
+            <video id="crowdVideoPlayer" style="width:100%;height:100%;object-fit:contain;background:#000;display:none;" controls autoplay
+              muted loop playsinline></video>
+            <!-- YouTube 影片播放器（embed iframe） -->
+            <iframe id="crowdYoutubePlayer" style="width:100%;height:100%;display:none;border:none;" allow="autoplay;encrypted-media" allowfullscreen></iframe>
+            <!-- 感謝 + 評分按鈕（播放群眾影片時出現） -->
+            <div id="crowdVideoActions" style="display:none;position:absolute;bottom:52px;right:12px;z-index:30;display:none;flex-direction:column;gap:6px;align-items:flex-end">
+              <button id="btnThankVolunteer" onclick="thankVolunteer()"
+                style="padding:7px 13px;border-radius:24px;border:none;cursor:pointer;font-family:inherit;
+                background:rgba(255,255,255,0.92);color:#e74c3c;font-weight:800;font-size:0.78rem;
+                box-shadow:0 2px 10px rgba(0,0,0,0.18);backdrop-filter:blur(4px)">
+                💝 感謝志工
+              </button>
+              <button id="btnRateVideo" onclick="openRateModal()"
+                style="padding:7px 13px;border-radius:24px;border:none;cursor:pointer;font-family:inherit;
+                background:rgba(245,166,35,0.95);color:white;font-weight:800;font-size:0.78rem;
+                box-shadow:0 2px 10px rgba(0,0,0,0.2);backdrop-filter:blur(4px)">
+                ⭐ 評分留言
+              </button>
+            </div>
+        <!-- 占位展示（未選擇時） -->
+        <div class="explore-placeholder" id="camPlaceholder">
+          <!-- 星星粒子 -->
+          <div class="ep-stars">
+            <span class="ep-star" style="--x:10%;--y:15%;--d:2.1s">✦</span>
+            <span class="ep-star" style="--x:85%;--y:10%;--d:3.4s">✧</span>
+            <span class="ep-star" style="--x:20%;--y:80%;--d:1.8s">✦</span>
+            <span class="ep-star" style="--x:75%;--y:75%;--d:2.7s">✧</span>
+            <span class="ep-star" style="--x:50%;--y:5%;--d:3.1s">✦</span>
+            <span class="ep-star" style="--x:5%;--y:50%;--d:2.4s">✧</span>
+            <span class="ep-star" style="--x:92%;--y:45%;--d:1.6s">✦</span>
+          </div>
+          <!-- 地球動畫 -->
+          <div class="ep-globe-wrap">
+            <div class="ep-globe" id="globeEmoji">🌍</div>
+            <div class="ep-orbit"><div class="ep-plane">✈️</div></div>
+          </div>
+          <!-- 主標語 -->
+          <div class="ep-title">探索地球的另一端</div>
+          <div class="ep-sub">點擊右側地圖上的 <span class="ep-highlight">📹 攝影機圖標</span><br>即可載入世界各地即時影像</div>
+          <!-- 目的地標籤 -->
+          <div class="ep-chips">
+            <span class="ep-chip" style="--i:0">🗼 巴黎</span>
+            <span class="ep-chip" style="--i:1">🗽 紐約</span>
+            <span class="ep-chip" style="--i:2">🎌 東京</span>
+            <span class="ep-chip" style="--i:3">🏯 台北</span>
+            <span class="ep-chip" style="--i:4">🌉 舊金山</span>
+            <span class="ep-chip" style="--i:5">🕌 伊斯坦堡</span>
+          </div>
+          <!-- 統計列 -->
+          <div class="ep-stats">
+            <div class="ep-stat"><div class="ep-stat-num">100+</div><div class="ep-stat-lbl">即時攝影機</div></div>
+            <div class="ep-stat-divider"></div>
+            <div class="ep-stat"><div class="ep-stat-num">24/7</div><div class="ep-stat-lbl">全天候直播</div></div>
+            <div class="ep-stat-divider"></div>
+            <div class="ep-stat"><div class="ep-stat-num">∞</div><div class="ep-stat-lbl">探索無限</div></div>
+          </div>
+        </div>
+        <!-- 連線失敗提示 -->
+        <div id="camErrorOverlay" style="display:none;position:absolute;inset:0;z-index:25;
+          background:linear-gradient(160deg,#0d1b2e 0%,#0a1628 100%);
+          flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:24px;">
+          <div style="font-size:52px">📡</div>
+          <div style="font-size:1.05rem;font-weight:800;color:#ff8a8a">攝影機無法連線</div>
+          <div style="font-size:0.82rem;color:rgba(255,255,255,0.55);line-height:1.6">
+            此攝影機目前暫時無法取得影像<br>請稍後再試，或選擇其他景點
+          </div>
+          <button id="btnErrorClose" style="
+            margin-top:6px;padding:0.5em 1.8em;border-radius:24px;border:1px solid rgba(255,100,100,0.5);
+            background:rgba(255,80,80,0.18);color:#ff8a8a;font-size:0.9rem;font-weight:700;
+            cursor:pointer;font-family:inherit;transition:background 0.2s;">
+            ✕ 關閉
+          </button>
+        </div>
+        <!-- 載入中 -->
+        <div class="video-placeholder" id="camLoading" style="display:none">
+          <div style="font-size:40px;animation:pulse 1s infinite">📡</div>
+          <div style="font-size:14px" id="camLoadingName">對即時影像載入中…</div>
+        </div>
+        <div class="video-badge" id="videoLiveBadge" style="display:none">
+          <div class="live-dot" id="videoLiveDot"></div> <span id="videoLiveText">即時影像</span>
+        </div>
+          </div><!-- /video-panel -->
+          <!-- AI導覽與靜音按鈕列（影像下方，明顯可見） -->
+          <div class="video-controls-bar" id="videoControls" style="display:none">
+            <button class="vc-btn ai" id="btnAI">🤖 AI導覽</button>
+            <button class="vc-btn mute" id="btnMute">🔇 靜音模式</button>
+          </div>
+        </div><!-- /anyview-col (影像欄) -->
+
+        <!-- 地圖欄 -->
+        <div class="anyview-col">
+          <div class="anyview-panel-hdr" style="flex-direction:column;gap:6px;padding-bottom:6px">
+            <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+              <span id="mapPanelTitle">🗺️ 選擇景點</span>
+              <span class="anyview-hdr-hint" id="mapPanelHint">點擊圖標 · 搜尋地名</span>
+            </div>
+            <!-- 分類 tab -->
+            <div style="display:flex;gap:5px;flex-wrap:wrap">
+              <button class="av-cat-tab active" onclick="switchAnyviewTab('map',this)">🗺️ 地圖</button>
+              <button class="av-cat-tab" onclick="switchAnyviewTab('nature',this)">🌿 大自然</button>
+              <button class="av-cat-tab" onclick="switchAnyviewTab('ocean',this)">🌊 海洋</button>
+              <button class="av-cat-tab" onclick="switchAnyviewTab('farm',this)">🌾 農林牧</button>
+              <button class="av-cat-tab" onclick="switchAnyviewTab('bird',this)">🐦 生態</button>
+            </div>
+          </div>
+          <!-- 療癒精選列表（地圖替換） -->
+          <div id="therapeuticList" style="display:none;overflow-y:auto;
+            flex:1;padding:6px 8px 16px;background:#0d1b2e;gap:6px;flex-direction:column;
+            min-height:0"></div>
+          <div class="map-panel" id="mapPanelWrap" style="position:relative">
+        <!-- 搜尋框覆層 -->
+        <div style="position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:20;width:calc(100% - 24px);max-width:min(320px, 85vw);">
+          <input id="mapSearchInput" type="text" placeholder="🔍 搜尋地點…" style="
+            width:100%;box-sizing:border-box;
+            padding:0.55em 1em;
+            border-radius:24px;
+            border:none;
+            background:rgba(255,255,255,0.96);
+            box-shadow:0 2px 12px rgba(0,0,0,0.25);
+            font-family:inherit;font-size:0.88rem;
+            outline:none;color:#333;
+          " />
+        </div>
+        <div id="googleMap" style="width:100%;height:100%;"></div>
+        <!-- popup 覆層（重新請求按鈕） -->
+        <div class="missing-popup" id="missingPopup">
+          <button class="missing-close" onclick="hideMissingPopup()">✕</button>
+          <div class="missing-content">
+            <span class="missing-icon" style="color:#e85454;font-size:1.6rem;margin-right:10px;">❌</span>
+            <div style="flex:1;text-align:left;">
+              <div style="font-size:0.95rem;font-weight:800;color:#e85454;margin-bottom:2px">目前還未有人上傳影片</div>
+              <div style="font-size:0.85rem;color:#c13b3b;font-weight:700" id="missingLocationName">—</div>
+            </div>
+            <button class="request-trigger" id="btnOpenRequest"
+              style="padding:10px 16px;border-radius:20px;border:none;background:#e85454;color:white;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 4px 12px rgba(232,84,84,0.3);">
+              向眾人請求
+            </button>
+          </div>
+        </div><!-- /missing-popup -->
+          </div><!-- /map-panel (mapPanelWrap) -->
+        </div><!-- /anyview-col (地圖欄) -->
+
+      </div><!-- /anyview-main -->
+    </div><!-- /anyview-layout -->
+  </div>
+
+  <!-- ══ SCREEN 4: 醫聲相伴（病患端）══════════════ -->
+  <div class="screen" id="screen-medical">
+    <div class="topbar">
+      <span class="topbar-label green">醫聲相伴（病患端）</span>
+      <div style="flex:1"></div>
+      <div class="topbar-right">
+        <button class="back-btn green" data-back="screen-patient-home">← 返回</button>
+        <div class="avatar-btn">🏥</div>
+        <button class="icon-btn">⚙️</button>
+      </div>
+    </div>
+    <div style="position:fixed;bottom:14px;left:16px;z-index:50">
+      <span class="room-tag">503-B號病房</span>
+    </div>
+
+    <div class="medical-layout" style="padding-top:8px">
+      <!-- 歷史紀錄 -->
+      <div class="history-panel">
+        <div class="history-header">💬 留言紀錄</div>
+        <div class="history-list" id="historyList">
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+          <div class="skeleton"></div>
+        </div>
+      </div>
+
+      <!-- 情緒選擇 -->
+      <div class="emotion-panel">
+        <div class="emotion-header">選擇目前心情，與訊息一起傳給醫生</div>
+        <div class="emotion-grid">
+          <button class="emotion-btn" data-emotion="開心" data-emoji="😊">
+            <div class="emotion-emoji">😊</div>
+            <div class="emotion-label">開心</div>
+          </button>
+          <button class="emotion-btn" data-emotion="難過" data-emoji="😟">
+            <div class="emotion-emoji">😟</div>
+            <div class="emotion-label">難過</div>
+          </button>
+          <button class="emotion-btn" data-emotion="焦慮" data-emoji="😰">
+            <div class="emotion-emoji">😰</div>
+            <div class="emotion-label">焦慮</div>
+          </button>
+          <button class="emotion-btn" data-emotion="有問題" data-emoji="🤔">
+            <div class="emotion-emoji">🤔</div>
+            <div class="emotion-label">有問題</div>
+          </button>
+        </div>
+        <!-- 已選心情提示列 -->
+        <div class="emotion-selected-bar" id="emotionSelectedBar" style="display:none">
+          <span id="emotionSelectedText">已選擇：</span>
+          <span class="esb-hint">將連同訊息一起傳送給醫生</span>
+        </div>
+        <div class="emotion-input-row" style="flex-direction:column; align-items:stretch;">
+          <div style="display:flex; gap:8px;">
+            <select id="doctorSelect"
+              style="flex:1; padding:8px; border-radius:12px; border:1.5px solid rgba(56,178,122,0.2); font-family:inherit; color:var(--text-dark); background:white; font-size:0.85rem;"></select>
+            <button id="btnRecommendDept"
+              style="padding:8px 12px; border-radius:12px; border:none; background:linear-gradient(135deg, #f5a623, #ffc04a); color:white; font-weight:700; cursor:pointer; font-size:0.85rem; font-family:inherit; box-shadow:0 2px 8px rgba(245,166,35,0.3); transition: transform 0.2s;">🤖
+              不知道問哪科？</button>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <input class="emotion-text-input" id="patientMsg" placeholder="想跟醫生說什麼？" />
+            <button class="voice-input-btn" id="btnVoiceInput" title="語音輸入">🎙</button>
+            <button class="send-btn" id="btnSendMsg">→</button>
+          </div>
+          <!-- AI 情緒分析狀態列 -->
+          <div id="aiSentimentBar" style="display:none;margin-top:6px;padding:6px 10px;
+               border-radius:8px;font-size:0.78rem;background:rgba(100,100,255,0.06);
+               border:1px solid rgba(100,100,255,0.15);color:#555;text-align:center">
+            <span id="aiSentimentText">🤖 AI 情緒分析中…</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 5: 醫生待辦清單 ═════════════════ -->
+  <div class="screen" id="screen-doctor">
+    <div class="topbar">
+      <span class="topbar-label">醫聲相伴（醫生端）</span>
+      <div style="flex:1"></div>
+      <div class="topbar-right">
+        <div class="avatar-btn doctor">👨‍⚕️</div>
+        <button class="icon-btn">⚙️</button>
+        <button class="icon-btn" data-back="screen-role">↩</button>
+      </div>
+    </div>
+    <div class="doctor-layout">
+      <!-- 頂部：醫生歡迎 + 統計 -->
+      <div class="doctor-header-card">
+        <div class="doctor-header-left">
+          <div class="doctor-avatar-circle">👨‍⚕️</div>
+          <div>
+            <div class="doctor-greeting">醫聲相伴系統</div>
+            <div id="doctorWelcomeText" class="doctor-name-line">歡迎使用醫聲相伴</div>
+          </div>
+        </div>
+        <div class="doctor-stat-row">
+          <div class="doctor-stat-pill">
+            <div class="dsp-icon">👥</div>
+            <div class="dsp-val" id="statTotal">--</div>
+            <div class="dsp-label">今日服務人數</div>
+          </div>
+          <div class="doctor-stat-pill urgent-pill">
+            <div class="dsp-icon">🔔</div>
+            <div class="dsp-val urgent" id="statUrgent">--</div>
+            <div class="dsp-label">急需處理案件</div>
+          </div>
+          <div class="doctor-stat-pill rx-pill" id="statRxPill" onclick="openRxReviewModal()" title="點擊查看待審核的視覺處方影片" style="cursor:pointer">
+            <div class="dsp-icon">🎬</div>
+            <div class="dsp-val rx-val" id="statRxReview">0</div>
+            <div class="dsp-label">待回復視覺處方</div>
+          </div>
+          <div class="doctor-stat-pill unread-pill">
+            <div class="dsp-icon">💬</div>
+            <div class="dsp-val unread-val" id="statUnread">--</div>
+            <div class="dsp-label">未讀留言</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 待辦清單（全寬） -->
+      <div class="todo-card">
+        <div class="todo-list-header">
+          <div class="todo-header-title">
+            <span class="todo-header-dot pending-dot"></span>待處理請求
+          </div>
+          <div class="todo-filters">
+            <select id="priorityFilter" class="hospital-filter-select">
+              <option value="">全部等級</option>
+              <option value="red">🔴 緊急</option>
+              <option value="yellow">🟡 注意</option>
+              <option value="none">⚪ 一般</option>
+            </select>
+            <select id="hospitalFilter" class="hospital-filter-select">
+              <option value="">全部醫院</option>
+              <option value="台北總院">台北總院</option>
+              <option value="台中分院">台中分院</option>
+              <option value="高雄分院">高雄分院</option>
+            </select>
+          </div>
+        </div>
+        <!-- 優先等級統計列 -->
+        <div class="priority-summary" id="prioritySummary">
+          <span class="ps-chip ps-red">🔴 緊急 <strong id="countRed">0</strong> 件</span>
+          <span class="ps-chip ps-yellow">🟡 注意 <strong id="countYellow">0</strong> 件</span>
+          <span class="ps-chip ps-gray">⚪ 一般 <strong id="countNone">0</strong> 件</span>
+          <span class="ps-hint">點擊右側標籤切換等級</span>
+        </div>
+        <!-- 可捲動清單區 -->
+        <div class="todo-card-scroll">
+          <div id="pendingList">
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+          </div>
+          <div class="todo-list-header done-header">
+            <div class="todo-header-title">
+              <span class="todo-header-dot done-dot"></span>已完成
+            </div>
+          </div>
+          <div id="doneList">
+            <div class="skeleton"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 6: 醫生回覆介面 ═════════════════ -->
+  <div class="screen" id="screen-doctor-reply">
+    <div class="topbar">
+      <button class="back-btn" data-back="screen-doctor">← 回到清單</button>
+      <span class="topbar-label">醫聲相伴（醫生端）</span>
+      <div class="topbar-right">
+        <div class="avatar-btn doctor">👨‍⚕️</div>
+        <button class="icon-btn">⚙️</button>
+      </div>
+    </div>
+
+    <div class="reply-layout">
+
+      <!-- ── 左側：病患資料面板 ── -->
+      <div class="reply-left">
+
+        <!-- 病患基本資訊 -->
+        <div class="rp-info-card">
+          <div class="rp-avatar-wrap">
+            <div class="rp-avatar">😷</div>
+            <div class="rp-avatar-pulse"></div>
+          </div>
+          <div class="rp-info-body">
+            <div class="rp-name" id="replyPatientName">病患</div>
+            <div class="rp-room" id="replyRoomName">病房</div>
+            <div class="rp-meta-row">
+              <span class="rp-meta-chip" id="replyHospitalChip">醫院</span>
+              <span class="rp-meta-chip rp-meta-emotion" id="replyEmotionChip">心情</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 歷史對話紀錄按鈕 -->
+        <button id="btnHistoryLog" onclick="openHistoryModal()"
+          style="width:100%;padding:11px 14px;border-radius:12px;border:1.5px solid #e0e0e0;
+                 background:white;cursor:pointer;font-family:inherit;
+                 display:flex;align-items:center;justify-content:space-between;gap:8px;
+                 box-shadow:0 1px 4px rgba(0,0,0,0.06);transition:box-shadow .2s">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:1.1rem">📋</span>
+            <div style="text-align:left">
+              <div style="font-weight:800;font-size:0.85rem;color:#333">歷史對話紀錄</div>
+              <div id="historyBtnMeta" style="font-size:0.7rem;color:#aaa;margin-top:1px">載入中...</div>
+            </div>
+          </div>
+          <span style="color:#aaa;font-size:0.9rem">›</span>
+        </button>
+        <!-- 隱藏的歷史資料（供 modal 使用） -->
+        <div id="replyHistoryList" style="display:none"></div>
+
+        <!-- 情緒趨勢圖 -->
+        <div class="rp-chart-section">
+          <div class="rp-section-title" style="display:flex;align-items:center;justify-content:space-between">
+            <span>📊 情緒趨勢</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="rp-trend-badge" id="trendBadge"></span>
+              <button class="panel-expand-btn" onclick="expandPanel('chart')" title="展開放大">⤢</button>
+            </div>
+          </div>
+          <div class="rp-chart-wrap">
+            <canvas id="emotionChartCanvas" height="110"></canvas>
+          </div>
+          <div class="rp-chart-hint" id="emotionChartHint" style="font-size:0.72rem;color:#888;margin-top:4px;text-align:center"></div>
+        </div>
+
+        <!-- 生理感測數據（M55M1 微表情 + EDA） -->
+        <div class="rp-chart-section" id="biometricCard">
+          <div class="rp-section-title" style="display:flex;align-items:center;justify-content:space-between">
+            <span>🧬 生理感測數據</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span id="bioUpdatedAt" style="font-size:0.68rem;color:#bbb"></span>
+              <span id="bioAlertBadge" style="font-size:0.7rem;font-weight:800;padding:2px 8px;border-radius:10px;display:none"></span>
+            </div>
+          </div>
+
+          <!-- 微表情區塊 -->
+          <div style="margin-bottom:10px">
+            <div style="font-size:0.72rem;font-weight:700;color:#667eea;margin-bottom:6px;letter-spacing:.5px">
+              📡 M55M1 微表情分析
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span id="bioExprLabel" style="font-size:1rem;font-weight:900;color:#333"></span>
+              <div style="flex:1;background:#f0f0f0;border-radius:6px;height:7px;overflow:hidden">
+                <div id="bioExprBar" style="height:100%;border-radius:6px;background:linear-gradient(90deg,#667eea,#764ba2);transition:width .6s"></div>
+              </div>
+              <span id="bioExprConf" style="font-size:0.72rem;color:#888;white-space:nowrap"></span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px">
+              <div class="bio-mini-card">
+                <div class="bio-mini-label">眼睛開合</div>
+                <div id="bioEye" class="bio-mini-val"></div>
+              </div>
+              <div class="bio-mini-card">
+                <div class="bio-mini-label">眉頭皺縮</div>
+                <div id="bioBrow" class="bio-mini-val"></div>
+              </div>
+              <div class="bio-mini-card">
+                <div class="bio-mini-label">嘴唇張力</div>
+                <div id="bioLip" class="bio-mini-val"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="height:1px;background:#f0f0f0;margin:8px 0"></div>
+
+          <!-- EDA 區塊 -->
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <div style="font-size:0.72rem;font-weight:700;color:#e67e22;letter-spacing:.5px">
+                ⚡ EDA 膚電生理訊號
+              </div>
+              <div style="display:flex;align-items:center;gap:5px">
+                <span id="bioEdaState" style="font-size:0.75rem;font-weight:800;padding:2px 8px;border-radius:10px"></span>
+                <span id="bioSigQuality" style="font-size:0.68rem;color:#aaa"></span>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+              <div class="bio-mini-card">
+                <div class="bio-mini-label">電導基線</div>
+                <div id="bioBaseline" class="bio-mini-val"></div>
+              </div>
+              <div class="bio-mini-card">
+                <div class="bio-mini-label">峰值反應</div>
+                <div id="bioPeak" class="bio-mini-val"></div>
+              </div>
+              <div class="bio-mini-card">
+                <div class="bio-mini-label">5min反應次</div>
+                <div id="bioRespCount" class="bio-mini-val"></div>
+              </div>
+              <div class="bio-mini-card">
+                <div class="bio-mini-label">平均恢復</div>
+                <div id="bioRecovery" class="bio-mini-val"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部按鈕 -->
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn-prescription" onclick="openPrescriptionModal()">
+            🏥 開立視覺處方
+          </button>
+        </div>
+
+
+      </div>
+
+      <!-- ── 右側：回覆區 ── -->
+      <div class="reply-right">
+
+        <!-- 待回覆訊息 -->
+        <div class="reply-card">
+          <div class="rc-section-title">
+            <span class="rc-dot unread-dot"></span>待回覆訊息
+          </div>
+          <div class="msg-bubble-wrap">
+            <div id="msgSelectorRow"
+              style="display:none;flex-wrap:wrap;gap:6px;padding:0 2px;margin-bottom:8px"></div>
+            <div id="patientEmotionBadge" class="patient-emotion-badge" style="display:none"></div>
+            <div class="msg-bubble" id="patientMsgBubble">載入中...</div>
+          </div>
+        </div>
+
+        <!-- AI 重構預覽 -->
+        <div class="llm-preview" id="llmPreview" style="display:none">
+          <div class="llm-preview-label">🤖 AI 建議回覆</div>
+          <div id="llmText"></div>
+        </div>
+
+        <!-- AI 生成回覆 -->
+        <div class="quick-reply-row" style="flex-wrap:wrap;gap:6px">
+          <button id="btnAIGenReply"
+            style="padding:8px 16px;border-radius:20px;border:none;cursor:pointer;font-family:inherit;
+                   background:linear-gradient(135deg,#667eea,#764ba2);color:white;font-weight:700;
+                   font-size:0.82rem;box-shadow:0 2px 8px rgba(102,126,234,0.4);flex-shrink:0">
+            🤖 AI 生成回覆
+          </button>
+          <button class="qr-chip" data-text="您好，我已收到您的訊息，稍後會親自前往查看。">📋 稍後查看</button>
+          <button class="qr-chip" data-text="您的狀況我了解了，目前的治療方向是正確的，請放心休養。">✅ 請放心</button>
+        </div>
+
+        <!-- 回覆輸入區 -->
+        <div class="reply-card reply-input-area">
+          <div class="rc-section-title" style="margin-bottom:8px;">
+            <span class="rc-dot reply-dot"></span>輸入回覆
+          </div>
+          <textarea class="reply-textarea" id="doctorReplyText" placeholder="在此輸入您的回覆..." rows="4"></textarea>
+          <div class="reply-actions">
+            <button class="mic-btn" id="micBtn">🎙 語音錄製</button>
+            <button class="warm-btn" id="btnEmpathyRewrite" title="透過 Claude AI 將回覆轉譯為更具同理心的溫暖語句，並語音播報">💝 溫暖轉譯</button>
+            <button class="send-reply-btn" id="btnSendReply">送出回覆 →</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 7: 群眾端 ════════════════════════ -->
+  <div class="screen" id="screen-crowd">
+    <div class="topbar">
+      <span class="topbar-label orange">群眾端</span>
+      <div style="flex:1"></div>
+      <div class="topbar-right">
+        <div class="avatar-btn crowd">📱</div>
+        <button class="icon-btn" style="position:relative" onclick="openNotifPanel()" id="crowdNotifBell">
+          🔔
+          <span id="notifBadge" style="display:none;position:absolute;top:2px;right:2px;
+            background:#e74c3c;color:white;font-size:0.5rem;font-weight:800;
+            min-width:14px;height:14px;border-radius:7px;line-height:14px;text-align:center;padding:0 3px"></span>
+        </button>
+        <button class="icon-btn">⚙️</button>
+        <button class="icon-btn" data-back="screen-role">↩</button>
+      </div>
+    </div>
+
+    <!-- 主要版面：左1/3 成就 + 右2/3 任務 -->
+    <div class="crowd-layout-new">
+
+      <!-- ★ 左側：個人成就面板 -->
+      <div class="crowd-achieve-panel">
+        <div class="achieve-title" style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+          <span>🏆 個人成就</span>
+          <div class="lb-tab-group" style="flex-shrink:0">
+            <button class="lb-tab active" onclick="switchStatsPeriod('alltime',this)">累積</button>
+            <button class="lb-tab" onclick="switchStatsPeriod('monthly',this)">本月</button>
+            <button class="lb-tab" onclick="switchStatsPeriod('weekly',this)">本周</button>
+          </div>
+        </div>
+
+        <!-- 統計卡 (3欄) -->
+        <div class="achieve-stats-grid">
+          <div class="achieve-stat-card">
+            <div class="achieve-stat-val" id="statCompleted">—</div>
+            <div class="achieve-stat-label">已完成</div>
+          </div>
+          <div class="achieve-stat-card accent">
+            <div class="achieve-stat-val" id="statInProgress">—</div>
+            <div class="achieve-stat-label">進行中</div>
+          </div>
+          <div class="achieve-stat-card green">
+            <div class="achieve-stat-val" id="statSatisfaction">—</div>
+            <div class="achieve-stat-label">滿意度</div>
+          </div>
+        </div>
+
+        <!-- 積分 + 本周/本月名次徽章 -->
+        <div class="point-badge" id="statPoints">— 點</div>
+        <div class="rank-badges-row" id="rankBadgesRow" style="display:none">
+          <div class="rank-badge-pill" id="rankBadgeWeek"></div>
+          <div class="rank-badge-pill" id="rankBadgeMonth"></div>
+        </div>
+
+        <!-- 等級進度條 -->
+        <div class="achieve-level">
+          <div class="achieve-level-label">
+            <span id="levelName">🥈 白銀探索者</span>
+            <span id="levelPct" style="color:var(--orange-main);font-weight:700">—</span>
+          </div>
+          <div class="achieve-level-bar">
+            <div class="achieve-level-fill" id="levelFill" style="width:0%"></div>
+          </div>
+          <div id="levelHint" style="font-size:0.7rem;color:rgba(0,0,0,0.4);text-align:right;margin-top:2px">—</div>
+        </div>
+
+        <!-- 排行榜區 -->
+        <div class="leaderboard-section">
+          <div class="lb-header-row">
+            <span class="reward-sec-title" style="margin:0">🏅 地區排行榜</span>
+            <div class="lb-tab-group">
+              <button class="lb-tab active" onclick="switchLbTab('weekly',this)">本周</button>
+              <button class="lb-tab" onclick="switchLbTab('monthly',this)">本月</button>
+              <button class="lb-tab" onclick="switchLbTab('alltime',this)">累積</button>
+            </div>
+          </div>
+          <!-- 獎勵說明列 -->
+          <div class="lb-reward-hint" id="lbRewardHint">
+            <span>🥇 星巴克星冰樂</span><span>🥈 7-11 咖啡</span><span>🥉 7-11 咖啡</span>
+          </div>
+          <!-- 排行榜列表 -->
+          <div id="leaderboardList" class="lb-list">
+            <div class="skeleton" style="margin:4px 0;height:32px"></div>
+            <div class="skeleton" style="margin:4px 0;height:32px"></div>
+            <div class="skeleton" style="margin:4px 0;height:32px"></div>
+          </div>
+        </div>
+
+        <!-- 我的排行獎勵 -->
+        <div class="reward-section" id="myRewardsSection">
+          <div class="reward-sec-title">🎁 我的排行獎勵</div>
+          <div id="myRewardsList">
+            <div style="font-size:0.75rem;color:rgba(0,0,0,0.35);text-align:center;padding:8px 0">
+              進入前3名即自動獲得獎勵
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ★ 右側：任務列表 -->
+      <div class="crowd-tasks-panel">
+        <div class="task-list-header-row">
+          <span>📋 影片需求任務</span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button onclick="openCrowdWishlist()"
+              style="padding:6px 13px;border-radius:18px;border:none;cursor:pointer;
+                     background:linear-gradient(135deg,#f5a623,#ffc83a);color:white;font-size:0.78rem;
+                     font-weight:800;font-family:inherit;box-shadow:0 2px 6px rgba(245,166,35,0.35)">
+              💝 病患心願
+            </button>
+          </div>
+        </div>
+        <div id="taskList" style="flex:1;overflow-y:auto">
+          <div class="skeleton" style="margin:8px"></div>
+          <div class="skeleton" style="margin:8px"></div>
+          <div class="skeleton" style="margin:8px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 隱藏的 file input（Modal 觸發） -->
+    <input type="file" id="videoFileInput"
+      accept="video/mp4,video/quicktime,video/x-msvideo,video/webm,.mp4,.mov,.avi,.webm,.mkv" style="display:none">
+  </div>
+
+  <!-- ══ 群眾端：病患心願清單 Modal ════════════════ -->
+  <div id="crowdWishlistOverlay" onclick="closeCrowdWishlist()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:300"></div>
+  <div id="crowdWishlistModal"
+    style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+           width:min(500px,93vw);max-height:82vh;background:white;border-radius:18px;
+           box-shadow:0 8px 40px rgba(0,0,0,0.28);z-index:301;overflow:hidden;flex-direction:column">
+    <!-- 標題列 -->
+    <div style="padding:16px 20px 12px;background:linear-gradient(135deg,#f5a623,#ffc83a);color:white;
+                display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <div>
+        <div style="font-weight:900;font-size:1.05rem">💝 病患心願清單</div>
+        <div style="font-size:0.75rem;opacity:.88;margin-top:2px">認領心願，帶病患看見世界</div>
+      </div>
+      <button onclick="closeCrowdWishlist()"
+        style="background:rgba(255,255,255,0.22);border:none;color:white;border-radius:50%;
+               width:30px;height:30px;cursor:pointer;font-size:1.1rem;line-height:30px;font-weight:700">✕</button>
+    </div>
+    <!-- 心願列表 -->
+    <div style="overflow-y:auto;padding:14px 18px 20px;flex:1">
+      <div id="crowdWishlistItems">
+        <div style="text-align:center;padding:24px;color:#bbb;font-size:0.85rem">載入中…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 志工心願履行 Modal（認領後出發前語音 + 上傳成果）════ -->
+  <div id="wishFulfillOverlay" onclick="closeWishFulfillModal()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:302"></div>
+  <div id="wishFulfillModal"
+    style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+           width:min(460px,93vw);background:white;border-radius:18px;
+           box-shadow:0 8px 40px rgba(0,0,0,0.3);z-index:303;overflow:hidden">
+    <!-- 標題 -->
+    <div style="padding:16px 20px 12px;background:linear-gradient(135deg,#f5a623,#ffc83a);color:white;
+                display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <div>
+        <div style="font-weight:900;font-size:1.05rem">💪 心願已認領！</div>
+        <div id="wishFulfillPlaceName" style="font-size:0.75rem;opacity:.88;margin-top:2px">準備出發</div>
+      </div>
+      <button onclick="closeWishFulfillModal()"
+        style="background:rgba(255,255,255,0.22);border:none;color:white;border-radius:50%;
+               width:30px;height:30px;cursor:pointer;font-size:1.1rem;line-height:30px;font-weight:700">✕</button>
+    </div>
+    <div style="padding:16px 18px 20px;max-height:70vh;overflow-y:auto">
+      <!-- Step 1: 出發前語音 -->
+      <div style="background:#fff8ee;border:1.5px solid #ffc83a;border-radius:12px;padding:14px;margin-bottom:14px">
+        <div style="font-weight:800;font-size:0.92rem;color:#333;margin-bottom:3px">🎙 出發前語音（選填）</div>
+        <div style="font-size:0.78rem;color:#888;margin-bottom:10px">錄一段話給病患，讓他知道你正在趕去！</div>
+        <div id="preVoiceStatus" style="font-size:0.78rem;color:#bbb;margin-bottom:8px;min-height:18px"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="btnPreVoiceRec" onclick="startPreVoiceRecord()"
+            style="flex:1;min-width:90px;padding:9px 6px;border-radius:10px;border:none;background:#e74c3c;
+                   color:white;font-weight:700;font-size:0.83rem;cursor:pointer;font-family:inherit">⏺ 開始錄音</button>
+          <button id="btnPreVoiceStop" onclick="stopPreVoiceRecord()"
+            style="display:none;flex:1;min-width:90px;padding:9px 6px;border-radius:10px;border:none;
+                   background:#2d8f61;color:white;font-weight:700;font-size:0.83rem;cursor:pointer;font-family:inherit">⏹ 停止</button>
+          <button id="btnPreVoiceSend" onclick="sendPreVoice()"
+            style="display:none;flex:1;min-width:90px;padding:9px 6px;border-radius:10px;border:none;
+                   background:linear-gradient(135deg,#f5a623,#ffc83a);color:white;
+                   font-weight:700;font-size:0.83rem;cursor:pointer;font-family:inherit">📤 傳給病患</button>
+        </div>
+        <audio id="preVoicePlayback" controls style="display:none;width:100%;height:32px;margin-top:8px"></audio>
+      </div>
+      <!-- Step 2: 上傳成果影片 -->
+      <div style="background:#f0fff4;border:1.5px solid #2d8f61;border-radius:12px;padding:14px">
+        <div style="font-weight:800;font-size:0.92rem;color:#333;margin-bottom:3px">📹 上傳成果影片</div>
+        <div style="font-size:0.78rem;color:#888;margin-bottom:10px">抵達地點後，上傳拍攝的影片給病患</div>
+        <input type="file" id="wishFulfillFileInput"
+          accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.avi" style="display:none">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="document.getElementById('wishFulfillFileInput').click()"
+            style="flex:1;min-width:100px;padding:9px 6px;border-radius:10px;border:none;
+                   background:linear-gradient(135deg,#2d8f61,#27ae60);color:white;
+                   font-weight:700;font-size:0.83rem;cursor:pointer;font-family:inherit">📁 選擇影片</button>
+          <button id="btnWishUpload" onclick="uploadFulfillVideo()"
+            style="display:none;flex:1;min-width:100px;padding:9px 6px;border-radius:10px;border:none;
+                   background:linear-gradient(135deg,#f5a623,#ffc83a);color:white;
+                   font-weight:700;font-size:0.83rem;cursor:pointer;font-family:inherit">📤 上傳給病患</button>
+        </div>
+        <div id="wishFulfillProgress" style="font-size:0.78rem;color:#888;margin-top:8px;min-height:18px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 上傳影片 Modal ════════════════════════════ -->
+  <div class="modal-overlay" id="uploadModal" style="display:none">
+    <div class="modal-box" style="max-width:420px;width:90%;max-height:90vh;overflow-y:auto">
+      <button class="modal-close" id="btnCloseUpload" style="position:absolute;top:14px;right:14px">✕</button>
+
+      <!-- 任務資訊 -->
+      <div style="margin-bottom:14px">
+        <div style="font-size:0.75rem;color:rgba(0,0,0,0.4);font-weight:600;margin-bottom:4px;text-transform:uppercase">
+          上傳任務</div>
+        <div style="font-size:1.05rem;font-weight:800;color:#333" id="modalTaskName">—</div>
+        <div style="font-size:0.8rem;color:rgba(0,0,0,0.5);margin-top:2px" id="modalTaskDesc">—</div>
+      </div>
+
+      <!-- 醫生退回原因（有退回記錄時顯示） -->
+      <div id="modalRejectBanner" style="display:none;background:#fff3f3;border:1.5px solid #f5c6c6;
+           border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:0.8rem;color:#c0392b">
+        <strong>⚠️ 醫生退回原因：</strong>
+        <span id="modalRejectReason"></span>
+      </div>
+
+      <!-- 選取影片 -->
+      <div id="modalUploadDefault" style="border:2px dashed rgba(245,166,35,0.5);border-radius:14px;padding:22px 16px;
+               text-align:center;background:rgba(245,166,35,0.05)">
+        <div style="font-size:2rem;margin-bottom:6px">📹</div>
+        <div style="font-weight:700;color:#333;font-size:0.92rem;margin-bottom:12px">選擇提交方式</div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <button onclick="document.getElementById('videoFileInput').click()"
+            style="flex:1;min-width:90px;padding:10px 6px;border-radius:10px;border:none;
+                   background:linear-gradient(135deg,#ffc83a,#f5a623);
+                   color:white;font-weight:700;font-size:0.82rem;cursor:pointer;font-family:inherit">
+            📁 選擇影片
+          </button>
+          <button onclick="openCameraCapture()"
+            style="flex:1;min-width:90px;padding:10px 6px;border-radius:10px;
+                   border:1.5px solid rgba(245,166,35,0.5);
+                   background:white;color:#f5a623;font-weight:700;font-size:0.82rem;cursor:pointer;font-family:inherit">
+            📷 直接拍攝
+          </button>
+          <button onclick="showYoutubeInput()"
+            style="flex:1;min-width:90px;padding:10px 6px;border-radius:10px;
+                   border:1.5px solid rgba(255,0,0,0.3);
+                   background:white;color:#c00;font-weight:700;font-size:0.82rem;cursor:pointer;font-family:inherit">
+            ▶ YouTube
+          </button>
+        </div>
+        <div style="font-size:0.73rem;color:rgba(0,0,0,0.35);margin-top:8px">
+          上傳 .mp4/.MOV/.WEBM，或貼上 YouTube 連結
+        </div>
+      </div>
+
+      <!-- YouTube 連結輸入區 -->
+      <div id="modalYoutubeInput" style="display:none;margin-top:10px;
+           border:1.5px solid rgba(255,0,0,0.25);border-radius:12px;padding:14px 16px;background:#fff8f8">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+          <span style="font-size:1.1rem">▶</span>
+          <span style="font-weight:700;font-size:0.88rem;color:#333">貼上 YouTube 影片連結</span>
+          <button onclick="hideYoutubeInput()"
+            style="margin-left:auto;background:none;border:none;color:#aaa;cursor:pointer;font-size:1rem">✕</button>
+        </div>
+        <input id="youtubeUrlInput" type="text"
+          placeholder="https://www.youtube.com/watch?v=..."
+          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #f5c6c6;
+                 border-radius:9px;font-size:0.85rem;font-family:inherit;outline:none"/>
+        <div style="font-size:0.72rem;color:#888;margin:5px 0 10px">
+          🔒 僅接受 youtube.com 或 youtu.be 官方連結，確保資安
+        </div>
+        <button onclick="submitYoutubeLink()"
+          style="width:100%;padding:10px;border-radius:9px;border:none;cursor:pointer;
+                 background:linear-gradient(135deg,#ff4444,#cc0000);color:white;
+                 font-weight:800;font-size:0.88rem;font-family:inherit">
+          ▶ 提交 YouTube 影片
+        </button>
+      </div>
+
+      <!-- 相機直播預覽（直接拍攝模式） -->
+      <div id="cameraPreviewArea" style="display:none;margin-top:10px">
+        <div style="position:relative;border-radius:10px;overflow:hidden;background:#000">
+          <video id="cameraLivePreview" autoplay muted playsinline
+            style="width:100%;max-height:200px;display:block"></video>
+          <!-- AI 即時指導提示 -->
+          <div id="aiLiveGuide"
+            style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.8));
+                   color:white;padding:20px 10px 8px;font-size:0.8rem;text-align:center;min-height:44px">
+            <span id="aiLiveGuideText">🤖 分析中…</span>
+          </div>
+          <!-- 錄影計時 -->
+          <div id="recTimer" style="display:none;position:absolute;top:8px;right:8px;background:rgba(231,76,60,0.9);
+               color:white;padding:3px 8px;border-radius:20px;font-size:0.75rem;font-weight:700">
+            ⏺ <span id="recTimerText">0:00</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="btnStartRecord" onclick="startCameraRecord()"
+            style="flex:1;padding:10px;border-radius:10px;border:none;background:#e74c3c;color:white;
+                   font-weight:700;cursor:pointer;font-family:inherit">⏺ 開始錄影</button>
+          <button id="btnStopRecord" onclick="stopCameraRecord()"
+            style="flex:1;padding:10px;border-radius:10px;border:none;background:#2d8f61;color:white;
+                   font-weight:700;cursor:pointer;font-family:inherit;display:none">⏹ 停止錄影</button>
+          <button onclick="closeCameraCapture()"
+            style="padding:10px 14px;border-radius:10px;border:none;background:#bbb;color:white;
+                   font-weight:700;cursor:pointer;font-family:inherit">✕</button>
+        </div>
+        <!-- 隱藏 canvas 用於 AI 分析 -->
+        <canvas id="aiAnalysisCanvas" style="display:none"></canvas>
+      </div>
+
+      <!-- 選取後預覽 -->
+      <div id="modalFilePreview" style="display:none;margin-top:10px">
+        <video id="modalVideoPreview" controls
+          style="width:100%;border-radius:10px;max-height:180px;background:#000"></video>
+        <div style="font-size:0.8rem;color:#2d8f61;margin-top:6px;text-align:center" id="modalFileName"></div>
+
+      </div>
+
+      <!-- 進度條 -->
+      <div id="modalProgress" style="display:none;margin-top:14px;text-align:center">
+        <div style="font-weight:700;font-size:0.9rem;margin-bottom:6px" id="modalProgressText">上傳中… 0%</div>
+        <div style="height:8px;background:rgba(245,166,35,0.15);border-radius:8px;overflow:hidden">
+          <div id="modalProgressBar"
+            style="height:100%;width:0%;background:linear-gradient(90deg,#ffc83a,#f5a623);border-radius:8px;transition:width 0.2s">
+          </div>
+        </div>
+      </div>
+
+      <!-- 成功訊息 -->
+      <div id="modalSuccess" style="display:none;text-align:center;padding:14px 0">
+        <div style="font-size:2rem">✅</div>
+        <div style="font-weight:800;color:#2d8f61;margin:8px 0 4px">上傳成功！</div>
+        <div style="font-size:0.82rem;color:rgba(0,0,0,0.5)" id="modalSuccessMsg">視訊已提交，積分已更新</div>
+        <!-- CLIP + CLAP 內容比對結果 -->
+        <div id="clipMatchResult" style="display:none;margin:12px auto 0;max-width:280px;
+             background:#f7f9fc;border-radius:10px;padding:10px 14px;text-align:left">
+          <div style="font-size:0.72rem;font-weight:700;color:#f5a623;margin-bottom:6px">
+            🤖 AI 內容符合度分析
+          </div>
+          <!-- 綜合分數 -->
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <div style="flex:1;height:7px;background:rgba(0,0,0,0.08);border-radius:6px;overflow:hidden">
+              <div id="clipMatchBar" style="height:100%;width:0%;border-radius:6px;
+                   transition:width 0.8s;background:#2d8f61"></div>
+            </div>
+            <span id="clipMatchScore" style="font-size:0.88rem;font-weight:800;color:#333;min-width:36px;text-align:right">—</span>
+          </div>
+          <div id="clipMatchLabel" style="font-size:0.8rem;color:#555"></div>
+          <div id="clipMatchDesc" style="font-size:0.72rem;color:rgba(0,0,0,0.4);margin-top:3px;
+               white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+          <!-- 音頻分析列（有關鍵字時才顯示） -->
+          <div id="clipAudioRow" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.06)">
+            <div style="font-size:0.68rem;font-weight:700;color:#5b8dd9;margin-bottom:4px">🎵 音效符合度</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+              <div style="flex:1;height:5px;background:rgba(0,0,0,0.08);border-radius:4px;overflow:hidden">
+                <div id="clipAudioBar" style="height:100%;width:0%;border-radius:4px;transition:width 0.8s;background:#5b8dd9"></div>
+              </div>
+              <span id="clipAudioScore" style="font-size:0.82rem;font-weight:800;color:#5b8dd9;min-width:36px;text-align:right">—</span>
+            </div>
+            <div id="clipAudioLabel" style="font-size:0.75rem;color:#666"></div>
+            <div id="clipDetectedSounds" style="font-size:0.68rem;color:rgba(0,0,0,0.4);margin-top:2px"></div>
+          </div>
+          <!-- AI 建議列表 -->
+          <div id="clipSuggestionsRow" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,0.06)">
+            <div style="font-size:0.68rem;font-weight:700;color:#e05b2b;margin-bottom:4px">💡 改善建議</div>
+            <ul id="clipSuggestionsList" style="margin:0;padding-left:14px;font-size:0.72rem;color:#555;line-height:1.6"></ul>
+          </div>
+        </div>
+        <div id="clipMatchLoading" style="display:none;font-size:0.78rem;color:rgba(0,0,0,0.4);margin-top:10px">
+          🔍 AI 分析影片內容中…
+        </div>
+        <button onclick="closeUploadModal()" style="margin-top:14px;padding:8px 28px;border-radius:20px;border:none;background:var(--orange-main);
+                 color:white;font-weight:700;cursor:pointer;font-size:0.85rem">完成</button>
+      </div>
+
+      <!-- 上傳按鈕 -->
+      <button id="btnSubmitVideo" onclick="submitModalUpload()" style="display:none;margin-top:16px;width:100%;padding:12px;border-radius:12px;border:none;
+               background:linear-gradient(135deg,#ffc83a,#f5a623);color:white;
+               font-weight:800;font-size:0.95rem;cursor:pointer;font-family:inherit">
+        上傳影片 →
+      </button>
+    </div>
+  </div>
+
+
+  <!-- 景點請求 Modal -->
+  <div class="modal-overlay" id="requestModal">
+    <div class="modal-box">
+      <button class="modal-close" id="modalClose">✕</button>
+      <div class="modal-title">📍 向群眾發出請求</div>
+      <div class="modal-field">
+        <label>地點</label>
+        <input type="text" id="modalLocation" class="modal-input" placeholder="請輸入地點名稱"
+          style="width:100%;padding:12px;border:1px solid rgba(0,0,0,0.15);border-radius:10px;font-family:inherit;font-size:0.95rem;background:#f8f9fa;box-sizing:border-box;">
+      </div>
+      <div class="modal-field">
+        <label>拍攝內容說明</label>
+        <textarea id="requestDesc" placeholder="描述您希望看到的畫面..."></textarea>
+      </div>
+      <div class="modal-field">
+        <label>特別指定要求（選填）</label>
+        <textarea id="requestSpecial" placeholder="無" style="min-height:50px"></textarea>
+      </div>
+      <button class="modal-submit" id="btnSubmitRequest">傳送到群眾公共區</button>
+    </div>
+  </div>
+
+  <!-- 系統設定 Modal -->
+  <div class="modal-overlay" id="settingsModal" style="display:none;z-index:9999;">
+    <div class="modal-box" style="max-width:min(360px, 92vw);">
+      <button class="modal-close" onclick="document.getElementById('settingsModal').style.display='none'">✕</button>
+      <div class="modal-title">⚙️ 系統設定</div>
+
+      <!-- 🌐 網路設定 -->
+      <div class="setting-section-title">🌐 網際網路設定</div>
+      <div class="net-status-bar" id="netStatusBar">
+        <span id="netStatusIcon">📶</span>
+        <span id="netStatusText">偵測網路中…</span>
+      </div>
+      <div class="net-btn-group">
+        <button class="net-sel-btn active" id="netBtnWifi" onclick="switchNetwork('wifi')">
+          📶 Wi-Fi
+        </button>
+        <button class="net-sel-btn" id="netBtnMobile" onclick="switchNetwork('mobile')">
+          📱 行動網路 4G/5G
+        </button>
+      </div>
+
+      <!-- 🔔 推播設定 -->
+      <div class="setting-section-title" style="margin-top:14px;">🔔 通知設定</div>
+      <div style="margin-top:4px;">
+        <label class="setting-item">
+          <span class="setting-label">接收推播通知</span>
+          <label class="toggle-switch">
+            <input type="checkbox" checked>
+            <span class="slider"></span>
+          </label>
+        </label>
+        <label class="setting-item">
+          <span class="setting-label">LINE 通知整合</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="lineNotifyToggle">
+            <span class="slider"></span>
+          </label>
+        </label>
+        <label class="setting-item">
+          <span class="setting-label">深色模式 (預覽)</span>
+          <label class="toggle-switch">
+            <input type="checkbox">
+            <span class="slider"></span>
+          </label>
+        </label>
+      </div>
+      <button class="btn btn-primary" style="margin-top:16px;width:100%;"
+        onclick="document.getElementById('settingsModal').style.display='none';showToast('✅ 設定已儲存');">儲存設定</button>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN: 病患端「指定親友拍攝」════════════ -->
+  <div class="screen" id="screen-patient-share"
+    style="padding:0;align-items:stretch;justify-content:flex-start">
+    <div class="topbar" style="background:linear-gradient(135deg,#5b8dd9,#4a78c5)">
+      <span class="topbar-label" style="background:rgba(255,255,255,0.2);color:white">指定親友拍攝</span>
+      <div class="topbar-center">
+        <div class="sys-title" style="font-size:1rem;color:white;-webkit-text-fill-color:white;background:none">📤 指定親友協助拍攝</div>
+      </div>
+      <div class="topbar-right">
+        <button class="back-btn" style="background:rgba(255,255,255,0.2);color:white;border-color:rgba(255,255,255,0.4)"
+          data-back="screen-patient-home">← 返回</button>
+      </div>
+    </div>
+
+    <!-- 地點搜尋列 -->
+    <div style="flex-shrink:0;z-index:10;padding-top:calc(var(--topbar-h) + 10px);padding-left:14px;
+                padding-right:14px;padding-bottom:6px;background:linear-gradient(135deg,#5b8dd9,#4a78c5)">
+      <div style="background:white;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.15);
+                  display:flex;align-items:center;gap:8px;padding:8px 14px">
+        <span style="font-size:1.1rem;flex-shrink:0">🔍</span>
+        <input id="patientShareLocation" type="text"
+          placeholder="搜尋地點（如：大稻埕碼頭、台北101…）"
+          oninput="onPatientShareLocationInput(this.value)"
+          style="flex:1;border:none;outline:none;font-size:0.9rem;font-family:inherit;background:transparent;
+                 min-width:0"/>
+      </div>
+    </div>
+
+    <!-- 地圖（佔滿剩餘空間） -->
+    <div style="position:relative;flex:1;min-height:0">
+      <div id="patientShareMap" style="width:100%;height:100%"></div>
+      <div id="patientShareMapHint"
+        style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+               justify-content:center;color:#7a96c4;font-size:0.88rem;text-align:center;
+               pointer-events:none;background:#dde8f5;gap:10px">
+        <div style="font-size:2.5rem">🗺️</div>
+        <div style="font-weight:700">搜尋地點，或直接點擊地圖選點</div>
+      </div>
+    </div>
+
+    <!-- 底部操作區 -->
+    <div style="flex-shrink:0;background:white;box-shadow:0 -2px 16px rgba(0,0,0,0.1);
+                padding:12px 16px env(safe-area-inset-bottom,12px)">
+      <div id="patientShareSelectedPlace"
+        style="display:none;background:#eef4ff;border:1.5px solid #c8d9f5;border-radius:10px;
+               padding:8px 12px;margin-bottom:10px;font-size:0.85rem;color:#3a6dbf;font-weight:700">
+      </div>
+      <textarea id="patientShareRequirements" rows="2"
+        placeholder="✏️ 拍攝要求（如：幫我拍日落時分的河岸景色，要有橋梁和行人…）"
+        style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid #c8d9f5;
+               border-radius:10px;font-size:0.85rem;font-family:inherit;resize:none;outline:none;
+               margin-bottom:10px"></textarea>
+      <button onclick="submitPatientShareRequest()" id="btnPatientShareSubmit"
+        style="width:100%;padding:13px;border-radius:12px;border:none;cursor:pointer;
+               background:linear-gradient(135deg,#5b8dd9,#4a78c5);color:white;
+               font-weight:900;font-size:0.95rem;font-family:inherit;
+               box-shadow:0 3px 12px rgba(91,141,217,0.4)">
+        📤 建立請求並分享給親友
+      </button>
+    </div>
+  </div>
+
+  <!-- 📤 分享給親友 Modal -->
+  <div class="modal-overlay" id="shareModal" style="display:none;z-index:9999;">
+    <div class="modal-box" style="max-width:min(360px, 92vw);">
+      <button class="modal-close" onclick="closeShareModal()">✕</button>
+      <div class="modal-title">📤 指定親友協助拍攝</div>
+      <div class="share-task-preview" id="shareTaskPreview"></div>
+      <div class="share-msg-wrap">
+        <div class="share-msg-label">推播訊息內容（可編輯）</div>
+        <textarea id="shareMessage" class="share-msg-textarea" rows="4"></textarea>
+      </div>
+      <div class="share-channels">
+        <button class="share-ch-btn share-line" onclick="shareViaLine()">
+          <span class="sch-icon">💬</span>LINE
+        </button>
+        <button class="share-ch-btn share-sms" onclick="shareViaSMS()">
+          <span class="sch-icon">📱</span>簡訊
+        </button>
+        <button class="share-ch-btn share-messenger" onclick="shareViaMessenger()">
+          <span class="sch-icon">💙</span>Messenger
+        </button>
+        <button class="share-ch-btn share-copy" onclick="copyShareMsg()">
+          <span class="sch-icon">📋</span>複製
+        </button>
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="nativeShare()">
+        📤 使用手機原生分享
+      </button>
+    </div>
+  </div>
+
+  <!-- ══ 註冊帳號 Modal ══════════════════════════════ -->
+  <div class="modal-overlay" id="authRegisterModal" style="display:none;z-index:9999">
+    <div class="modal-box" style="max-width:min(400px,93vw);padding:24px 22px 20px">
+      <button class="modal-close" onclick="closeAuthRegister()">✕</button>
+      <div style="text-align:center;margin-bottom:16px">
+        <div id="regRoleIcon" style="font-size:2.8rem;line-height:1;margin-bottom:6px">📋</div>
+        <div style="font-weight:900;font-size:1.05rem;color:#333">建立帳號</div>
+        <div id="regRoleLabel" style="font-size:0.75rem;color:#888;margin-top:3px"></div>
+      </div>
+
+      <!-- Step 1：填寫資料 -->
+      <div id="regStep1">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <input id="regName" type="text" placeholder="姓名（必填）"
+            style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                   font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box"/>
+          <input id="regAccount" type="text" placeholder="帳號（英文+數字，至少 6 碼）"
+            style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                   font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box"/>
+          <input id="regPassword" type="password" placeholder="密碼（至少 6 碼）"
+            style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                   font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box"/>
+          <input id="regPasswordConfirm" type="password" placeholder="確認密碼"
+            style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                   font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box"/>
+          <!-- 角色專屬欄位 -->
+          <div id="regExtraField"></div>
+          <input id="regPhone" type="tel" placeholder="手機號碼（接收驗證碼）"
+            style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                   font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box"/>
+        </div>
+        <div id="regError"
+          style="display:none;color:#e74c3c;font-size:0.78rem;margin-top:8px;padding:6px 10px;
+                 background:#fff3f3;border-radius:8px"></div>
+        <button onclick="submitRegister()"
+          style="width:100%;margin-top:14px;padding:12px;border-radius:12px;border:none;cursor:pointer;
+                 font-weight:900;font-size:0.95rem;font-family:inherit;color:white;
+                 background:linear-gradient(135deg,#5b8dd9,#4a78c5);
+                 box-shadow:0 3px 12px rgba(91,141,217,0.4)"
+          id="regSubmitBtn">
+          建立帳號 →
+        </button>
+        <div style="text-align:center;margin-top:10px;font-size:0.78rem;color:#aaa">
+          已有帳號？點左上 ✕ 返回登入
+        </div>
+      </div>
+
+      <!-- Step 2：成功畫面 -->
+      <div id="regStep2" style="display:none;text-align:center;padding:10px 0">
+        <div style="font-size:2.5rem;margin-bottom:10px">✅</div>
+        <div style="font-weight:900;font-size:1rem;color:#2d8f61;margin-bottom:6px">帳號建立成功！</div>
+        <div id="regSuccessMsg" style="font-size:0.83rem;color:#555;line-height:1.6;margin-bottom:16px"></div>
+        <button onclick="closeAuthRegister()"
+          style="padding:10px 32px;border-radius:20px;border:none;cursor:pointer;
+                 background:#2d8f61;color:white;font-weight:800;font-family:inherit">
+          前往登入
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 忘記密碼 Modal ══════════════════════════════ -->
+  <div class="modal-overlay" id="authForgotModal" style="display:none;z-index:9999">
+    <div class="modal-box" style="max-width:min(380px,93vw);padding:24px 22px 20px">
+      <button class="modal-close" onclick="closeAuthForgot()">✕</button>
+      <div style="text-align:center;margin-bottom:16px">
+        <div style="font-size:2.5rem;line-height:1;margin-bottom:6px">🔐</div>
+        <div style="font-weight:900;font-size:1.05rem;color:#333">重設密碼</div>
+        <div id="forgotRoleLabel" style="font-size:0.75rem;color:#888;margin-top:3px"></div>
+      </div>
+
+      <!-- Step 1：輸入帳號 -->
+      <div id="forgotStep1">
+        <div style="font-size:0.83rem;color:#555;margin-bottom:12px;line-height:1.5">
+          請輸入您的帳號，我們將傳送重設連結至您的手機或信箱。
+        </div>
+        <input id="forgotAccount" type="text" placeholder="輸入帳號"
+          style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                 font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box;
+                 margin-bottom:12px"/>
+        <div style="font-size:0.8rem;font-weight:700;color:#444;margin-bottom:8px">選擇重設方式</div>
+        <div style="display:flex;gap:10px;margin-bottom:14px">
+          <label style="flex:1;display:flex;align-items:center;gap:7px;padding:10px 12px;
+                        border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:0.85rem">
+            <input type="radio" name="forgotMethod" value="sms" checked
+              style="accent-color:#5b8dd9"/> 📱 手機簡訊
+          </label>
+          <label style="flex:1;display:flex;align-items:center;gap:7px;padding:10px 12px;
+                        border:1.5px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:0.85rem">
+            <input type="radio" name="forgotMethod" value="email"
+              style="accent-color:#5b8dd9"/> 📧 電子郵件
+          </label>
+        </div>
+        <div id="forgotError"
+          style="display:none;color:#e74c3c;font-size:0.78rem;margin-bottom:10px;padding:6px 10px;
+                 background:#fff3f3;border-radius:8px"></div>
+        <button onclick="submitForgot()"
+          style="width:100%;padding:12px;border-radius:12px;border:none;cursor:pointer;
+                 font-weight:900;font-size:0.95rem;font-family:inherit;color:white;
+                 background:linear-gradient(135deg,#667eea,#764ba2);
+                 box-shadow:0 3px 12px rgba(102,126,234,0.4)">
+          發送重設驗證碼
+        </button>
+      </div>
+
+      <!-- Step 2：輸入驗證碼 + 新密碼 -->
+      <div id="forgotStep2" style="display:none">
+        <div id="forgotSentHint"
+          style="background:#f0f8ff;border-radius:10px;padding:10px 12px;font-size:0.82rem;
+                 color:#3a6dbf;margin-bottom:14px;line-height:1.5"></div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <input id="forgotCode" type="text" placeholder="輸入 6 位數驗證碼" maxlength="6"
+            style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                   font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box;
+                   letter-spacing:0.2em;text-align:center"/>
+          <input id="forgotNewPass" type="password" placeholder="新密碼（至少 6 碼）"
+            style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                   font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box"/>
+          <input id="forgotNewPassConfirm" type="password" placeholder="確認新密碼"
+            style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                   font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box"/>
+        </div>
+        <div id="forgotError2"
+          style="display:none;color:#e74c3c;font-size:0.78rem;margin-top:8px;padding:6px 10px;
+                 background:#fff3f3;border-radius:8px"></div>
+        <button onclick="confirmResetPassword()"
+          style="width:100%;margin-top:14px;padding:12px;border-radius:12px;border:none;cursor:pointer;
+                 font-weight:900;font-size:0.95rem;font-family:inherit;color:white;
+                 background:linear-gradient(135deg,#2d8f61,#38af7a);
+                 box-shadow:0 3px 12px rgba(45,143,97,0.4)">
+          確認重設密碼
+        </button>
+        <button onclick="goForgotStep1()"
+          style="width:100%;margin-top:8px;padding:9px;border-radius:12px;border:none;cursor:pointer;
+                 font-weight:700;font-size:0.82rem;font-family:inherit;color:#888;background:#f5f5f5">
+          ← 重新輸入帳號
+        </button>
+      </div>
+
+      <!-- Step 3：成功 -->
+      <div id="forgotStep3" style="display:none;text-align:center;padding:10px 0">
+        <div style="font-size:2.5rem;margin-bottom:10px">🎉</div>
+        <div style="font-weight:900;font-size:1rem;color:#2d8f61;margin-bottom:6px">密碼已重設成功！</div>
+        <div style="font-size:0.83rem;color:#555;margin-bottom:16px">請使用新密碼登入帳號</div>
+        <button onclick="closeAuthForgot()"
+          style="padding:10px 32px;border-radius:20px;border:none;cursor:pointer;
+                 background:#2d8f61;color:white;font-weight:800;font-family:inherit">
+          前往登入
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🎁 獎勵兌換 Modal -->
+  <div class="modal-overlay" id="rewardModal" style="display:none;z-index:9999;">
+    <div class="modal-box reward-modal-box">
+      <button class="modal-close" onclick="document.getElementById('rewardModal').style.display='none'">✕</button>
+      <div class="reward-confetti">🎊 🎉 🎊</div>
+      <div class="reward-modal-title" id="rewardModalTitle">恭喜！排行榜獎勵</div>
+      <div id="rewardModalSubtitle" style="font-size:0.82rem;color:#888;margin-bottom:10px;text-align:center"></div>
+      <div class="reward-gift-card" id="rewardGiftCard">
+        <div class="rgc-store" id="rgcStore">7-ELEVEN</div>
+        <div class="rgc-icon" id="rgcIcon">☕</div>
+        <div class="rgc-item" id="rgcItem">大杯美式咖啡兌換券</div>
+        <div class="rgc-code-label">兌換碼</div>
+        <div class="rgc-code" id="rgcCode">載入中…</div>
+        <div class="rgc-expiry" id="rgcExpiry">有效期限：2026/12/31</div>
+      </div>
+      <p class="reward-note">🎁 兌換碼已同步發送至您的 LINE 帳號</p>
+      <button class="btn btn-primary" style="width:100%;"
+        onclick="document.getElementById('rewardModal').style.display='none';showToast('🎊 感謝您的貢獻！');">
+        收下獎勵！
+      </button>
+    </div>
+  </div>
+
+  <!-- 個人資料 Modal -->
+  <div class="modal-overlay" id="profileModal" style="display:none;z-index:9999;">
+    <div class="modal-box" style="max-width:min(300px, 90vw);text-align:center;">
+      <button class="modal-close" onclick="document.getElementById('profileModal').style.display='none'">✕</button>
+      <div style="font-size:3rem;margin-bottom:8px" id="profileModalAvatar">👤</div>
+      <div class="modal-title" style="margin-bottom:4px;" id="profileModalName">使用者</div>
+      <div style="font-size:0.9rem;color:#666;margin-bottom:20px;" id="profileModalDesc">角色描述</div>
+      <div style="background:#f8f9fa;padding:12px;border-radius:12px;text-align:left;">
+        <div style="font-size:0.8rem;color:#888;margin-bottom:4px;">目前狀態 / 積分</div>
+        <div style="font-weight:800;font-size:1.1rem;color:var(--blue-main);" id="profileModalStatus">線上</div>
+      </div>
+      <button class="btn btn-secondary"
+        style="margin-top:16px;width:100%;color:#c81e1e;border-color:#f8d7da;background:#fff"
+        onclick="document.getElementById('profileModal').style.display='none';goTo('screen-role');showToast('已登出');">登出</button>
+    </div>
+  </div>
+
+  <!-- ⭐ 評分與留言 Modal -->
+  <div class="modal-overlay" id="rateModal" style="display:none;z-index:9999"
+       onclick="if(event.target===this)closeRateModal()">
+    <div class="modal-box" style="max-width:min(400px,92vw);max-height:88vh;overflow-y:auto">
+      <button class="modal-close" onclick="closeRateModal()">✕</button>
+      <div class="modal-title">⭐ 評分與留言</div>
+      <p style="font-size:0.8rem;color:#888;margin-top:-8px;margin-bottom:12px;text-align:center">
+        您的鼓勵是志工最大的動力 💪
+      </p>
+      <!-- 星級選擇 -->
+      <div style="text-align:center;margin-bottom:12px">
+        <div style="font-size:0.78rem;color:#555;margin-bottom:6px">您對這部影片滿意嗎？</div>
+        <div class="star-row" id="starRow">
+          <span class="star-btn" data-star="1" onclick="selectStar(1)">★</span>
+          <span class="star-btn" data-star="2" onclick="selectStar(2)">★</span>
+          <span class="star-btn" data-star="3" onclick="selectStar(3)">★</span>
+          <span class="star-btn" data-star="4" onclick="selectStar(4)">★</span>
+          <span class="star-btn" data-star="5" onclick="selectStar(5)">★</span>
+        </div>
+        <div id="starLabel" style="font-size:0.75rem;color:#f5a623;margin-top:4px;min-height:1.2em"></div>
+      </div>
+      <!-- 文字留言 -->
+      <textarea id="rateText" rows="4" placeholder="留下感謝的話，或分享看完後的心情…（選填）"
+        style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:10px;
+               font-size:0.85rem;resize:none;box-sizing:border-box;font-family:inherit;
+               line-height:1.5;outline:none"></textarea>
+      <!-- 語音錄製 -->
+      <div style="margin-top:10px">
+        <div style="font-size:0.76rem;color:#555;margin-bottom:6px">🎙 也可錄一段語音（選填）</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button id="btnRateVoiceRec" onclick="toggleRateVoice()"
+            style="flex:1;padding:9px;border-radius:10px;border:1.5px solid rgba(245,166,35,0.5);
+                   background:white;color:#f5a623;font-weight:700;font-size:0.82rem;cursor:pointer;font-family:inherit">
+            🎙 開始錄音
+          </button>
+          <span id="rateVoiceTimer" style="font-size:0.78rem;color:#e74c3c;min-width:32px;display:none">0:00</span>
+        </div>
+        <audio id="rateVoicePreview" controls style="display:none;width:100%;margin-top:8px;height:36px"></audio>
+      </div>
+      <!-- 加好友 -->
+      <label style="display:flex;align-items:center;gap:8px;margin-top:14px;cursor:pointer;
+                    padding:10px;background:#f8f9fa;border-radius:10px">
+        <input type="checkbox" id="chkAddFriend" style="width:18px;height:18px;accent-color:#f5a623">
+        <div>
+          <div style="font-size:0.85rem;font-weight:700;color:#333">💬 申請加好友</div>
+          <div style="font-size:0.72rem;color:#888">對方同意後即可在平台上互相聊天</div>
+        </div>
+      </label>
+      <button onclick="submitRating()"
+        style="width:100%;margin-top:14px;padding:12px;border-radius:12px;border:none;
+               background:linear-gradient(135deg,#ffc83a,#f5a623);color:white;
+               font-weight:800;font-size:0.95rem;cursor:pointer;font-family:inherit">
+        送出評分 ✨
+      </button>
+    </div>
+  </div>
+
+  <!-- 💬 留言詳細 Modal（病患端） -->
+  <div id="msgDetailModal" style="display:none;position:fixed;inset:0;z-index:3000;
+       align-items:center;justify-content:center;background:rgba(0,0,0,0.45);"
+       onclick="if(event.target===this)closeMsgModal()">
+    <div style="background:#fff;border-radius:18px;width:min(90vw,380px);
+                box-shadow:0 8px 32px rgba(0,0,0,0.22);overflow:hidden;font-family:inherit">
+      <!-- header -->
+      <div style="background:linear-gradient(135deg,#2d8f61,#38b27a);padding:14px 18px;
+                  display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div id="mdm-emotion" style="color:white;font-size:1rem;font-weight:700"></div>
+          <div id="mdm-time"    style="color:rgba(255,255,255,0.75);font-size:0.72rem;margin-top:2px"></div>
+        </div>
+        <button onclick="closeMsgModal()"
+          style="background:rgba(255,255,255,0.2);border:none;border-radius:50%;width:30px;height:30px;
+                 color:white;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+      </div>
+      <!-- body -->
+      <div style="padding:16px 18px">
+        <div style="font-size:0.8rem;color:#888;margin-bottom:4px">您的留言</div>
+        <div id="mdm-text" style="font-size:0.95rem;color:#333;line-height:1.6;
+             background:#f7f9fc;border-radius:10px;padding:10px 12px;margin-bottom:12px"></div>
+        <!-- 醫生回覆（若有） -->
+        <div id="mdm-reply-section" style="display:none">
+          <div style="font-size:0.8rem;color:#2d8f61;font-weight:700;margin-bottom:4px">👨‍⚕️ 醫師回覆</div>
+          <div id="mdm-reply-text" style="font-size:0.9rem;color:#2d8f61;line-height:1.6;
+               background:rgba(56,178,122,0.07);border-radius:10px;padding:10px 12px;
+               border-left:3px solid #38b27a"></div>
+        </div>
+      </div>
+      <!-- footer -->
+      <div style="padding:0 18px 16px;display:flex;gap:8px">
+        <button id="mdm-read-btn" onclick="readMsgAloud()"
+          style="flex:1;padding:9px;border-radius:12px;border:none;cursor:pointer;font-family:inherit;
+                 background:linear-gradient(135deg,#5a9fe8,#3a7bd5);color:white;font-weight:700;font-size:0.85rem">
+          🔊 朗讀留言
+        </button>
+        <button onclick="closeMsgModal()"
+          style="flex:1;padding:9px;border-radius:12px;border:none;cursor:pointer;font-family:inherit;
+                 background:#f0f0f0;color:#555;font-weight:700;font-size:0.85rem">
+          關閉
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🔔 通知與好友 面板（病患端） -->
+  <div class="notif-overlay" id="patientFriendOverlay" onclick="closePatientFriendPanel()" style="display:none"></div>
+  <div class="notif-panel" id="patientFriendPanel">
+    <div class="notif-panel-hdr">
+      <span>🔔 通知與好友</span>
+      <button onclick="closePatientFriendPanel()"
+        style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:#555">✕</button>
+    </div>
+    <div class="notif-tabs-row">
+      <button class="notif-tab active" id="patientTabNotif" onclick="switchPatientTab('notif',this)">通知</button>
+      <button class="notif-tab" id="patientTabFriend" onclick="switchPatientTab('friend',this)">好友聊天</button>
+    </div>
+    <!-- 通知列表 -->
+    <div id="patientNotifListPane" style="overflow-y:auto;flex:1">
+      <div id="patientNotifList" style="padding:0 12px 12px"></div>
+    </div>
+    <!-- 好友列表 -->
+    <div id="patientFriendListPane" style="display:none;overflow-y:auto;flex:1">
+      <div style="padding:10px 12px 6px;font-size:0.75rem;color:#aaa">點擊好友開始聊天</div>
+      <div id="patientFriendList" style="padding:0 12px 12px"></div>
+    </div>
+  </div>
+
+
+  <!-- 🔔 通知與好友 面板（群眾端） -->
+  <div class="notif-overlay" id="notifOverlay" onclick="closeNotifPanel()" style="display:none"></div>
+  <div class="notif-panel" id="notifPanel">
+    <div class="notif-panel-hdr">
+      <span>🔔 通知與好友</span>
+      <button onclick="closeNotifPanel()"
+        style="background:none;border:none;font-size:1.1rem;cursor:pointer;color:#555">✕</button>
+    </div>
+    <div class="notif-tabs-row">
+      <button class="notif-tab active" id="tabNotif" onclick="switchNotifTab('notif',this)">通知</button>
+      <button class="notif-tab" id="tabFriend" onclick="switchNotifTab('friend',this)">好友聊天</button>
+    </div>
+    <!-- 通知列表 -->
+    <div id="notifListPane" style="overflow-y:auto;flex:1">
+      <div id="notifList" style="padding:0 12px 12px"></div>
+    </div>
+    <!-- 好友列表 -->
+    <div id="friendListPane" style="display:none;overflow-y:auto;flex:1">
+      <div id="friendList" style="padding:0 12px 12px"></div>
+    </div>
+  </div>
+
+  <!-- 💬 聊天 Modal -->
+  <div class="modal-overlay" id="chatModal" style="display:none;z-index:10000;padding:0;align-items:stretch">
+    <div class="chat-box">
+      <div class="chat-header">
+        <button onclick="closeChatModal()"
+          style="background:none;border:none;font-size:1rem;cursor:pointer;color:white;padding:4px 8px">
+          ← 返回
+        </button>
+        <span id="chatFriendName" style="font-weight:800;font-size:0.95rem">—</span>
+        <div style="width:40px"></div>
+      </div>
+      <div class="chat-messages" id="chatMessages"></div>
+      <div class="chat-input-area">
+        <button id="btnChatVoice" onclick="toggleChatVoice()"
+          style="padding:8px;border-radius:50%;border:none;background:rgba(0,0,0,0.06);
+                 cursor:pointer;font-size:1rem;flex-shrink:0">🎙</button>
+        <input type="text" id="chatInput" placeholder="輸入訊息…"
+          onkeydown="if(event.key==='Enter')sendChatMessage()"
+          style="flex:1;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:20px;
+                 font-size:0.88rem;outline:none;font-family:inherit">
+        <button onclick="sendChatMessage()"
+          style="padding:8px 16px;border-radius:20px;border:none;
+                 background:linear-gradient(135deg,#ffc83a,#f5a623);
+                 color:white;font-weight:800;font-size:0.85rem;cursor:pointer;font-family:inherit;flex-shrink:0">
+          送出
+        </button>
+      </div>
+      <div id="chatVoiceBar" style="display:none;padding:6px 12px 8px;background:#fff5e0;
+           border-top:1px solid #ffe0a0;display:none;align-items:center;gap:8px">
+        <span style="font-size:0.75rem;color:#e74c3c;font-weight:700" id="chatVoiceTimer">● 0:00</span>
+        <div style="flex:1;height:4px;background:rgba(245,166,35,0.3);border-radius:2px;overflow:hidden">
+          <div id="chatVoiceWave" style="height:100%;width:0%;background:#f5a623;transition:width 0.1s"></div>
+        </div>
+        <button onclick="stopChatVoice(true)"
+          style="padding:4px 10px;border-radius:10px;border:none;background:#f5a623;
+                 color:white;font-size:0.72rem;font-weight:700;cursor:pointer;font-family:inherit">
+          送出語音
+        </button>
+        <button onclick="stopChatVoice(false)"
+          style="padding:4px 8px;border-radius:10px;border:none;background:#eee;
+                 color:#666;font-size:0.72rem;cursor:pointer;font-family:inherit">
+          取消
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🎬 審核視覺處方 Modal（全域，僅從醫生首頁統計卡開啟） -->
+  <div id="rxReviewOverlay" onclick="closeRxReviewModal()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1200"></div>
+  <div id="rxReviewModal"
+    style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+           width:min(500px,94vw);max-height:82vh;background:white;border-radius:16px;
+           box-shadow:0 8px 40px rgba(0,0,0,0.3);z-index:1201;overflow:hidden;flex-direction:column">
+    <div style="padding:14px 18px 12px;background:linear-gradient(135deg,#e74c3c,#c0392b);
+                color:white;display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-weight:900;font-size:0.95rem">🎬 視覺處方影片審核</div>
+        <div id="rxReviewSubtitle" style="font-size:0.72rem;opacity:.85;margin-top:2px"></div>
+      </div>
+      <button onclick="closeRxReviewModal()"
+        style="background:rgba(255,255,255,0.2);border:none;color:white;border-radius:50%;
+               width:28px;height:28px;cursor:pointer;font-size:1rem;line-height:28px">✕</button>
+    </div>
+    <div style="overflow-y:auto;padding:14px 16px 18px">
+      <div id="rxReviewList" style="display:flex;flex-direction:column;gap:12px"></div>
+    </div>
+  </div>
+
+  <!-- 📋 歷史對話紀錄 Modal -->
+  <div id="historyModalOverlay" onclick="closeHistoryModal()"
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1500"></div>
+  <div id="historyModal"
+    style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+           width:min(520px,94vw);max-height:80vh;background:white;border-radius:18px;
+           box-shadow:0 8px 40px rgba(0,0,0,0.22);z-index:1501;overflow:hidden;flex-direction:column">
+    <div style="padding:16px 18px 12px;background:linear-gradient(135deg,#4a90d9,#357abd);
+                color:white;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <div>
+        <div style="font-weight:900;font-size:1rem">📋 歷史對話紀錄</div>
+        <div id="historyModalMeta" style="font-size:0.72rem;opacity:.85;margin-top:2px"></div>
+      </div>
+      <button onclick="closeHistoryModal()"
+        style="background:rgba(255,255,255,0.2);border:none;color:white;border-radius:50%;
+               width:30px;height:30px;cursor:pointer;font-size:1rem;line-height:30px;flex-shrink:0">✕</button>
+    </div>
+    <div style="overflow-y:auto;padding:14px 16px 18px;flex:1" id="historyModalList"></div>
+  </div>
+
+  <!-- Toast 通知 -->
+  <div class="toast" id="toast"></div>
+
+  <!-- ══ Chart.js — 情緒趨勢圖 ══ -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <!-- ══ 通用面板放大 Modal ══════════════════════════ -->
+  <div class="modal-overlay panel-expand-overlay" id="panelExpandModal"
+    style="display:none;align-items:flex-start;padding:20px"
+    onclick="if(event.target===this)closeExpandPanel()">
+    <div class="panel-expand-box">
+      <div class="panel-expand-header">
+        <span id="panelExpandTitle" style="font-weight:800;font-size:1.05rem"></span>
+        <button class="modal-close" onclick="closeExpandPanel()" style="position:static">✕</button>
+      </div>
+      <div id="panelExpandBody" style="overflow-y:auto;flex:1;min-height:0"></div>
+    </div>
+  </div>
+
+  <!-- ══ 視覺處方 Modal ══════════════════════════════ -->
+  <div class="modal-overlay" id="prescriptionModal" style="display:none">
+    <div class="modal-box rx-modal-box">
+      <button class="modal-close" onclick="closePrescriptionModal()">✕</button>
+      <div class="modal-title">🏥 開立視覺處方</div>
+      <p class="rx-subtitle">根據病患情緒，為其指定一種有益復原的視覺環境</p>
+
+      <!-- AI 建議區 -->
+      <div class="rx-ai-box" id="rxAiBox">
+        <div style="font-size:0.78rem;font-weight:700;color:#6c5ce7;margin-bottom:4px">🤖 AI 建議</div>
+        <div id="rxAiText" style="font-size:0.82rem;color:#444">根據近期情緒分析中…</div>
+      </div>
+
+      <!-- 視覺類型選擇 -->
+      <div class="rx-type-grid">
+        <button class="rx-type-btn" data-type="nature"   onclick="selectRxType('nature')">🌿<br><b>自然風景</b><br><span>山林・公園・海邊</span></button>
+        <button class="rx-type-btn" data-type="city"     onclick="selectRxType('city')">🏙️<br><b>城市街景</b><br><span>街道・商圈・夜景</span></button>
+        <button class="rx-type-btn" data-type="hometown" onclick="selectRxType('hometown')">🏡<br><b>家鄉風貌</b><br><span>病患熟悉的地方</span></button>
+        <button class="rx-type-btn" data-type="familiar" onclick="selectRxType('familiar')">☕<br><b>熟悉場所</b><br><span>咖啡廳・學校・辦公室</span></button>
+      </div>
+
+      <input id="rxLocationInput" type="text" placeholder="建議地點（如：大安森林公園）"
+        style="width:100%;padding:10px;border:1px solid #ddd;border-radius:10px;
+               font-size:0.88rem;margin-top:10px;box-sizing:border-box;font-family:inherit">
+
+      <textarea id="rxNoteInput" placeholder="醫療說明（如：建議觀看 5-10 分鐘自然景觀，有助於降低術後焦慮）"
+        style="width:100%;margin-top:8px;padding:10px;border:1px solid #ddd;border-radius:10px;
+               font-size:0.82rem;resize:none;min-height:76px;box-sizing:border-box;font-family:inherit"></textarea>
+
+      <button onclick="submitPrescription()"
+        style="width:100%;margin-top:12px;padding:12px;border-radius:12px;border:none;
+               background:linear-gradient(135deg,#2d8f61,#27ae60);color:white;
+               font-weight:800;font-size:0.95rem;cursor:pointer;font-family:inherit">
+        🏥 開立處方並發布任務 →
+      </button>
+      <div style="font-size:0.73rem;color:#aaa;margin-top:8px;text-align:center">
+        處方任務將自動發佈至群眾端（積分 400 點），並通知病患
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Hugging Face Transformers.js（AI 輕量化，瀏覽器端推論）══ -->
+  <script type="module">
+    import { pipeline, env } from
+      'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+    env.allowLocalModels  = false;
+    env.useBrowserCache   = true;   // 模型快取至 IndexedDB，第二次開啟秒載
+    // 掛到全域，讓非模組的 app.js 可以存取
+    window._HFPipeline = pipeline;
+    window.dispatchEvent(new Event('hf-ready'));
+  </script>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/app.js?v=17"></script>
+
+  <!-- Google Maps JavaScript API -->
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyA_G5S_jQxEPO0RQrI0NfDAaDoHPp74Uwk&libraries=places&callback=initGoogleMap&loading=async"
+    async defer>
+    </script>
+</body>
+
+</html>

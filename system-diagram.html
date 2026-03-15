@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>安心醫伴新視界 — 系統功能圖</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Microsoft JhengHei', 'Noto Sans TC', sans-serif;
+    background: #f0f4f8;
+    padding: 32px 24px;
+    min-height: 100vh;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 1.5rem;
+    color: #1a2e4a;
+    margin-bottom: 6px;
+    letter-spacing: 2px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 0.82rem;
+    color: #7a8fa6;
+    margin-bottom: 32px;
+    letter-spacing: 1px;
+  }
+
+  /* ── 三角色行 ── */
+  .roles-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 0;
+  }
+  .role-card {
+    width: 200px;
+    border-radius: 16px;
+    padding: 16px 12px 14px;
+    text-align: center;
+    color: white;
+    font-weight: 700;
+    font-size: 1rem;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+    position: relative;
+  }
+  .role-card .role-icon { font-size: 2rem; margin-bottom: 6px; }
+  .role-card.patient  { background: linear-gradient(135deg,#43b89c,#2e8b6e); }
+  .role-card.doctor   { background: linear-gradient(135deg,#5b8dee,#3a5bd9); }
+  .role-card.crowd    { background: linear-gradient(135deg,#f7a23b,#e07b10); }
+
+  /* ── 連接箭頭區 ── */
+  .connector-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin: 0;
+  }
+  .connector {
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+  .arrow-down {
+    width: 2px;
+    height: 28px;
+    background: #b0bec5;
+  }
+  .arrow-tip {
+    width: 0; height: 0;
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-top: 10px solid #b0bec5;
+  }
+
+  /* ── 功能模組行 ── */
+  .modules-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 0;
+  }
+  .module-col {
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .module-card {
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 0.8rem;
+    color: #1a2e4a;
+    background: white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border-left: 4px solid #ccc;
+  }
+  .module-card .mod-title {
+    font-weight: 700;
+    font-size: 0.85rem;
+    margin-bottom: 3px;
+  }
+  .module-card .mod-desc {
+    color: #5a6a7a;
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+  .module-card.green  { border-left-color: #43b89c; }
+  .module-card.blue   { border-left-color: #5b8dee; }
+  .module-card.orange { border-left-color: #f7a23b; }
+
+  /* ── 中央平台區 ── */
+  .platform-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0;
+  }
+  .platform-arrow-row {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    width: 100%;
+    max-width: 672px;
+  }
+  .platform-arrow-col {
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .platform-box {
+    background: linear-gradient(135deg,#1a2e4a,#2d4a6e);
+    color: white;
+    border-radius: 20px;
+    padding: 20px 28px;
+    width: 100%;
+    max-width: 672px;
+    box-shadow: 0 6px 24px rgba(26,46,74,0.25);
+    margin-top: 0;
+  }
+  .platform-title {
+    text-align: center;
+    font-size: 1.1rem;
+    font-weight: 900;
+    letter-spacing: 2px;
+    margin-bottom: 14px;
+  }
+  .platform-inner {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .platform-chip {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 0.78rem;
+    text-align: center;
+    flex: 1;
+    min-width: 120px;
+  }
+  .platform-chip .chip-icon { font-size: 1.3rem; margin-bottom: 4px; }
+  .platform-chip .chip-label { font-weight: 700; font-size: 0.82rem; }
+  .platform-chip .chip-sub { font-size: 0.7rem; opacity: 0.75; margin-top: 2px; }
+
+  /* ── 底部技術層 ── */
+  .tech-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 0;
+  }
+  .tech-box {
+    background: white;
+    border-radius: 16px;
+    padding: 16px 24px;
+    width: 100%;
+    max-width: 672px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    border-top: 4px solid #5b8dee;
+  }
+  .tech-title {
+    text-align: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #5b8dee;
+    margin-bottom: 10px;
+    letter-spacing: 1px;
+  }
+  .tech-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+  .tech-chip {
+    background: #f0f4f8;
+    border-radius: 20px;
+    padding: 5px 14px;
+    font-size: 0.75rem;
+    color: #3a5bd9;
+    font-weight: 600;
+    border: 1px solid #d0dbea;
+  }
+
+  /* ── 生物心理社會模型標籤 ── */
+  .model-bar {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .model-badge {
+    border-radius: 20px;
+    padding: 5px 16px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: white;
+  }
+  .model-badge.bio    { background: #e74c3c; }
+  .model-badge.psych  { background: #5b8dee; }
+  .model-badge.social { background: #43b89c; }
+</style>
+</head>
+<body>
+
+<h1>🏥 安心醫伴新視界</h1>
+<p class="subtitle">系統功能架構圖　基於生物心理社會模型（Engel, 1977）</p>
+
+<div class="model-bar">
+  <span class="model-badge bio">🔬 生理監測</span>
+  <span class="model-badge psych">💬 心理情緒支持</span>
+  <span class="model-badge social">🌍 社會連結維繫</span>
+</div>
+
+<!-- 三角色 -->
+<div class="roles-row">
+  <div class="role-card patient">
+    <div class="role-icon">🛏️</div>
+    病患端
+  </div>
+  <div class="role-card doctor">
+    <div class="role-icon">👨‍⚕️</div>
+    醫生端
+  </div>
+  <div class="role-card crowd">
+    <div class="role-icon">📸</div>
+    群眾端
+  </div>
+</div>
+
+<!-- 箭頭向下 -->
+<div class="connector-row" style="margin-top:4px">
+  <div class="connector"><div class="arrow-down"></div><div class="arrow-tip"></div></div>
+  <div class="connector"><div class="arrow-down"></div><div class="arrow-tip"></div></div>
+  <div class="connector"><div class="arrow-down"></div><div class="arrow-tip"></div></div>
+</div>
+
+<!-- 功能模組 -->
+<div class="modules-row" style="margin-top:4px">
+  <div class="module-col">
+    <div class="module-card green">
+      <div class="mod-title">😊 情緒傳達</div>
+      <div class="mod-desc">選擇心情表情並以語音或文字向醫生傳送訊息</div>
+    </div>
+    <div class="module-card green">
+      <div class="mod-title">🏥 視覺處方接收</div>
+      <div class="mod-desc">接收醫生開立的景點影片，點擊通知跳轉觀賞</div>
+    </div>
+    <div class="module-card green">
+      <div class="mod-title">🔊 語音播報</div>
+      <div class="mod-desc">朗讀醫生回覆，支援年長或行動不便病患</div>
+    </div>
+  </div>
+
+  <div class="module-col">
+    <div class="module-card blue">
+      <div class="mod-title">💬 醫聲相伴</div>
+      <div class="mod-desc">查看病患留言、AI 生成建議回覆、溫暖轉譯送出</div>
+    </div>
+    <div class="module-card blue">
+      <div class="mod-title">🎬 視覺處方開立</div>
+      <div class="mod-desc">開立景點任務、審核群眾影片、核准後推送病患</div>
+    </div>
+    <div class="module-card blue">
+      <div class="mod-title">📊 生理數據判讀</div>
+      <div class="mod-desc">M55M1 微表情分析 + EDA 膚電數據輔助臨床決策</div>
+    </div>
+  </div>
+
+  <div class="module-col">
+    <div class="module-card orange">
+      <div class="mod-title">📍 任務認領</div>
+      <div class="mod-desc">查看病患心願地點任務，認領後前往拍攝</div>
+    </div>
+    <div class="module-card orange">
+      <div class="mod-title">🎥 影片上傳</div>
+      <div class="mod-desc">上傳本地影片或 YouTube 連結，獲得積分獎勵</div>
+    </div>
+    <div class="module-card orange">
+      <div class="mod-title">🏆 排行榜</div>
+      <div class="mod-desc">個人成就、地區排行、好友互動，激勵持續參與</div>
+    </div>
+  </div>
+</div>
+
+<!-- 箭頭向下匯集平台 -->
+<div class="platform-arrow-row" style="margin-top:4px">
+  <div class="platform-arrow-col"><div class="arrow-down"></div><div class="arrow-tip"></div></div>
+  <div class="platform-arrow-col"><div class="arrow-down"></div><div class="arrow-tip"></div></div>
+  <div class="platform-arrow-col"><div class="arrow-down"></div><div class="arrow-tip"></div></div>
+</div>
+
+<!-- 核心平台 -->
+<div class="platform-section">
+  <div class="platform-box">
+    <div class="platform-title">⚙️ 安心醫伴新視界　核心平台</div>
+    <div class="platform-inner">
+      <div class="platform-chip">
+        <div class="chip-icon">🤖</div>
+        <div class="chip-label">AI 溫暖轉譯</div>
+        <div class="chip-sub">Claude Haiku<br>醫療語句同理心化</div>
+      </div>
+      <div class="platform-chip">
+        <div class="chip-icon">🧠</div>
+        <div class="chip-label">CLIP 影片驗證</div>
+        <div class="chip-sub">clip-ViT-B-32<br>圖文語意相似度比對</div>
+      </div>
+      <div class="platform-chip">
+        <div class="chip-icon">🔬</div>
+        <div class="chip-label">生理感測整合</div>
+        <div class="chip-sub">M55M1 微表情<br>EDA 膚電生理訊號</div>
+      </div>
+      <div class="platform-chip">
+        <div class="chip-icon">🗺️</div>
+        <div class="chip-label">地圖任務系統</div>
+        <div class="chip-sub">Google Maps API<br>景點標記與心願任務</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 箭頭向下 -->
+  <div style="display:flex;flex-direction:column;align-items:center;margin:2px 0">
+    <div class="arrow-down"></div>
+    <div class="arrow-tip"></div>
+  </div>
+
+  <!-- 技術層 -->
+  <div class="tech-box">
+    <div class="tech-title">🛠️ 技術基礎架構</div>
+    <div class="tech-chips">
+      <span class="tech-chip">FastAPI + Uvicorn</span>
+      <span class="tech-chip">HTML5 / CSS3 / JavaScript</span>
+      <span class="tech-chip">Anthropic Claude API</span>
+      <span class="tech-chip">sentence-transformers</span>
+      <span class="tech-chip">OpenCV / Pillow / PyAV</span>
+      <span class="tech-chip">Google Maps JS API</span>
+      <span class="tech-chip">Web Speech API</span>
+      <span class="tech-chip">Nuvoton M55M1</span>
+      <span class="tech-chip">EDA 膚電感測器</span>
+      <span class="tech-chip">ngrok 部署</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

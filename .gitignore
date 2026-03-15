@@ -1,0 +1,15 @@
+# 上傳的影片/音訊（太大，不應 commit）
+backend/uploads/
+
+# Python 虛擬環境
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# API Keys
+.env
+
+# OS 暫存
+.DS_Store
+Thumbs.db
