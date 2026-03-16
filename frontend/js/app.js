@@ -1,4 +1,4 @@
-// frontend/js/app.js
+// frontend/js/app.js — 前端主邏輯與三端互動控制
 
 // ── 字體大小切換系統 ───────────────────────────────
 const FONT_SIZES = ['small', 'medium', 'large'];

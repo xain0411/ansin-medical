@@ -1,4 +1,4 @@
-// frontend/js/api.js
+// frontend/js/api.js — API 呼叫封裝層
 // 所有 API 呼叫集中在這裡，方便之後修改 base URL
 
 const BASE_URL = "";  // 同源，不需要加 http://localhost:8000

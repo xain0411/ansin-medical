@@ -1,4 +1,4 @@
-# backend/fake_db.py
+# backend/fake_db.py — 系統資料管理模組
 # 所有假資料集中在這裡，方便之後換成真實資料庫
 
 from typing import List, Dict

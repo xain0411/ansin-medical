@@ -1,7 +1,7 @@
 # uv run uvicorn backend.main:app --reload --port 8000
 # uv run uvicorn backend.main:app --reload --port 8000 --host 0.0.0.0
 
-
+# backend/main.py — 智慧醫療陪伴系統 FastAPI 後端主程式
 # backend/main.py
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
