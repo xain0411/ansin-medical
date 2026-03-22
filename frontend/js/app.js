@@ -2259,10 +2259,8 @@ async function openDoctorReply(bed, patientRow) {
   goTo("screen-doctor-reply");
   setTimeout(() => renderEmotionChart(bed), 200);
   loadPrescriptionReviews(bed);
-  loadBiometric(bed);
 }
 
-// ── 生理感測數據（M55M1 微表情 + EDA）──────────────────────────────────
 // ── 歷史對話紀錄 Modal ────────────────────────────────────────────────
 function openHistoryModal() {
   const msgs = state._doctorMsgsCache || [];
@@ -2318,59 +2316,6 @@ function closeHistoryModal() {
   document.getElementById('historyModal').style.display        = 'none';
 }
 
-async function loadBiometric(bed) {
-  const card = document.getElementById('biometricCard');
-  if (!card) return;
-  try {
-    const data = await fetch(`/api/doctor/patient/${encodeURIComponent(bed)}/biometric`).then(r => r.json());
-
-    // 警示標籤
-    const alertBadge = document.getElementById('bioAlertBadge');
-    const alertColors = { '正常': '#27ae60', '需關注': '#f39c12', '高度警示': '#e74c3c' };
-    if (alertBadge) {
-      alertBadge.textContent = data.alert_level;
-      alertBadge.style.background = alertColors[data.alert_level] || '#aaa';
-      alertBadge.style.color = 'white';
-      alertBadge.style.display = '';
-    }
-    const updEl = document.getElementById('bioUpdatedAt');
-    if (updEl) updEl.textContent = `更新 ${data.updated_at}`;
-
-    // 微表情
-    const expr = data.micro_expression;
-    const exprColors = { '平靜': '#27ae60', '喜悅': '#f39c12', '壓抑': '#8e44ad', '焦慮': '#e74c3c', '不適': '#c0392b' };
-    const exprEl = document.getElementById('bioExprLabel');
-    if (exprEl) { exprEl.textContent = expr.label; exprEl.style.color = exprColors[expr.label] || '#333'; }
-    const barEl = document.getElementById('bioExprBar');
-    if (barEl) { barEl.style.width = (expr.confidence * 100) + '%'; barEl.style.background = `linear-gradient(90deg,${exprColors[expr.label] || '#667eea'},#764ba2)`; }
-    const confEl = document.getElementById('bioExprConf');
-    if (confEl) confEl.textContent = Math.round(expr.confidence * 100) + '%';
-
-    const pct = v => Math.round(v * 100) + '%';
-    document.getElementById('bioEye').textContent  = pct(expr.eye_openness);
-    document.getElementById('bioBrow').textContent = pct(expr.brow_furrow);
-    document.getElementById('bioLip').textContent  = pct(expr.lip_tension);
-
-    // EDA
-    const eda = data.eda;
-    const edaStateEl = document.getElementById('bioEdaState');
-    const edaColors = { '平靜': '#27ae60', '輕度緊張': '#f39c12', '中度緊張': '#e67e22', '高度緊張': '#e74c3c' };
-    if (edaStateEl) {
-      edaStateEl.textContent = eda.state;
-      edaStateEl.style.background = (edaColors[eda.state] || '#aaa') + '22';
-      edaStateEl.style.color = edaColors[eda.state] || '#333';
-    }
-    const sigEl = document.getElementById('bioSigQuality');
-    if (sigEl) sigEl.textContent = `訊號品質 ${Math.round(eda.signal_quality * 100)}%`;
-
-    document.getElementById('bioBaseline').textContent  = eda.baseline_uS + ' µS';
-    document.getElementById('bioPeak').textContent      = eda.peak_uS + ' µS';
-    document.getElementById('bioRespCount').textContent = eda.response_count_5min + ' 次';
-    document.getElementById('bioRecovery').textContent  = eda.avg_recovery_sec + ' 秒';
-  } catch {
-    if (card) card.style.display = 'none';
-  }
-}
 
 // ── 選擇要回覆的訊息 ──
 function selectDoctorMsg(msgId) {
@@ -5279,88 +5224,6 @@ function startPatientFriendPoll() {
   setInterval(checkUnread, 30000);
 }
 
-// ══════════════════════════════════════════════════════
-// 🔴  醫生端：微表情情緒警報（M55M1 板）
-// ══════════════════════════════════════════════════════
-let _emotionAlertTimer = null;
-
-function openEmotionAlerts() {
-  document.getElementById('emotionAlertOverlay').style.display = 'block';
-  document.getElementById('emotionAlertPanel').classList.add('open');
-  loadEmotionAlerts();
-}
-
-function closeEmotionAlerts() {
-  document.getElementById('emotionAlertPanel')?.classList.remove('open');
-  document.getElementById('emotionAlertOverlay').style.display = 'none';
-}
-
-async function loadEmotionAlerts() {
-  const doctorId = state.currentUser?.id || 'doctor_001';
-  try {
-    const data = await fetch(`/api/emotion/alerts/${doctorId}`).then(r => r.json());
-    const badge = document.getElementById('emotionAlertBadge');
-    if (badge) {
-      const n = data.unread || 0;
-      badge.style.display = n > 0 ? 'flex' : 'none';
-      badge.textContent = n > 9 ? '9+' : String(n);
-    }
-    renderEmotionAlerts(data.alerts || []);
-  } catch {}
-}
-
-function renderEmotionAlerts(alerts) {
-  const el = document.getElementById('emotionAlertList');
-  if (!el) return;
-  if (!alerts.length) {
-    el.innerHTML = '<div style="text-align:center;padding:24px;font-size:0.8rem;color:#aaa">目前無情緒警報 ✅</div>';
-    return;
-  }
-  const emoIcon = e => ({ sad: '😢', anxious: '😰', angry: '😠' }[e] || '😟');
-  el.innerHTML = alerts.map(a => `
-    <div style="padding:10px;border-radius:10px;background:#fff5f5;border:1px solid #fecaca;margin-bottom:8px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <span style="font-weight:800;font-size:0.85rem">${emoIcon(a.emotion)} ${a.patient_name}（${a.bed}）</span>
-        <span style="font-size:0.68rem;color:#aaa">${a.timestamp}</span>
-      </div>
-      <div style="font-size:0.78rem;color:#e74c3c;margin-bottom:6px">
-        偵測情緒：${a.emotion_label}（信心度 ${Math.round(a.confidence * 100)}%）
-      </div>
-      <div style="display:flex;gap:6px">
-        <button onclick="goToPatientFromAlert('${a.bed}');closeEmotionAlerts()"
-          style="flex:1;padding:6px;border-radius:8px;border:none;background:#e74c3c;color:white;
-                 font-size:0.78rem;font-weight:700;cursor:pointer;font-family:inherit">
-          💬 立即回覆
-        </button>
-        <button onclick="ackEmotionAlert('${a.id}',this)"
-          style="padding:6px 10px;border-radius:8px;border:1px solid #ccc;background:white;
-                 font-size:0.78rem;color:#666;cursor:pointer;font-family:inherit">
-          已知曉
-        </button>
-      </div>
-    </div>`).join('');
-}
-
-async function ackEmotionAlert(alertId, btn) {
-  try {
-    await fetch(`/api/emotion/alerts/${alertId}/ack`, { method: 'POST' });
-    btn.closest('div[style]').remove();
-    loadEmotionAlerts();
-  } catch {}
-}
-
-function goToPatientFromAlert(bed) {
-  showToast(`前往 ${bed} 病患回覆頁面`);
-  goTo('screen-doctor');
-}
-
-function startDoctorEmotionPoll() {
-  const uid = state.currentUser?.id;
-  if (!uid) return;
-  loadEmotionAlerts();
-  clearInterval(_emotionAlertTimer);
-  _emotionAlertTimer = setInterval(() => loadEmotionAlerts(), 30000);
-}
 
 // 群眾端進入時啟動通知輪詢
 function startCrowdNotifPoll() {

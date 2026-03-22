@@ -3863,25 +3863,6 @@ body {
 }
 
 /* ── 開立視覺處方按鈕 ────────────────────────────────── */
-/* 生理感測小卡 */
-.bio-mini-card {
-  background: #f8f9ff;
-  border-radius: 8px;
-  padding: 6px 8px;
-  text-align: center;
-  border: 1px solid #eef0f8;
-}
-.bio-mini-label {
-  font-size: 0.62rem;
-  color: #aaa;
-  margin-bottom: 2px;
-}
-.bio-mini-val {
-  font-size: 0.82rem;
-  font-weight: 800;
-  color: #333;
-}
-
 .btn-prescription {
   width: 100%;
   margin-top: 12px;
