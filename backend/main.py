@@ -1,5 +1,6 @@
-# uv run uvicorn backend.main:app --reload --port 8000
-# uv run uvicorn backend.main:app --reload --port 8000 --host 0.0.0.0
+# uv run uvicorn backend.main:app --reload --port 8001
+# uv run uvicorn backend.main:app --reload --port 8001 --host 0.0.0.0
+
 
 # backend/main.py — 智慧醫療陪伴系統 FastAPI 後端主程式
 # backend/main.py
@@ -10,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import os, sys, httpx, shutil, uuid, threading, asyncio, re
+from dotenv import load_dotenv
+load_dotenv()
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 import anthropic as _anthropic
@@ -284,6 +287,133 @@ async def get_preset_cameras():
     return {"cameras": result, "total": len(result)}
 
 
+# ════════════════════════════════════════════════
+# 任意視界 - Windy Webcams（公園、地標、自然景點等）
+# ════════════════════════════════════════════════
+
+WINDY_API_KEY = os.environ.get("WINDY_API_KEY", "")
+_windy_cache: dict = {}  # cache_key -> list of cameras（重啟即清除）
+
+# 亞洲熱門景點座標（Windy 攝影機覆蓋率高的地區）
+_WINDY_SEARCH_LOCATIONS = [
+    {"name": "東京",   "lat": 35.6762, "lon": 139.6503, "radius": 80},
+    {"name": "京都",   "lat": 35.0116, "lon": 135.7681, "radius": 50},
+    {"name": "大阪",   "lat": 34.6937, "lon": 135.5023, "radius": 50},
+    {"name": "首爾",   "lat": 37.5665, "lon": 126.9780, "radius": 60},
+    {"name": "峇里島", "lat": -8.3405, "lon": 115.0920, "radius": 80},
+    {"name": "新加坡", "lat":  1.3521, "lon": 103.8198, "radius": 50},
+    {"name": "香港",   "lat": 22.3193, "lon": 114.1694, "radius": 40},
+    {"name": "富士山", "lat": 35.3606, "lon": 138.7274, "radius": 40},
+    {"name": "沖繩",   "lat": 26.2124, "lon": 127.6809, "radius": 60},
+    {"name": "台灣",   "lat": 23.6978, "lon": 120.9605, "radius": 300},
+]
+
+async def _fetch_windy_nearby(client, lat, lon, radius, limit=15) -> list:
+    """查詢單一地點的 Windy 攝影機，回傳解析後的清單"""
+    try:
+        resp = await client.get(
+            "https://api.windy.com/webcams/api/v3/webcams",
+            headers={"x-windy-api-key": WINDY_API_KEY},
+            params={"nearby": f"{lat},{lon},{radius}", "limit": limit,
+                    "include": "location,player", "orderby": "popularity"}
+        )
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+    except Exception:
+        return []
+
+    cameras = []
+    for wc in data.get("webcams", []):
+        loc    = wc.get("location", {})
+        player = wc.get("player", {})
+        # Windy API v3：player.live / player.day 各自是 {"embed": "...", "link": "..."}
+        live_obj = player.get("live") or {}
+        day_obj  = player.get("day")  or {}
+        if isinstance(live_obj, str): live_obj = {"embed": live_obj}
+        if isinstance(day_obj,  str): day_obj  = {"embed": day_obj}
+        # 只取 embed URL（可嵌入 iframe）；link 是網頁連結，放入 iframe 會跳轉
+        embed = live_obj.get("embed") or day_obj.get("embed") or ""
+        if not embed:
+            continue
+        cameras.append({
+            "id":        f"windy_{wc['webcamId']}",
+            "name":      wc.get("title", str(wc["webcamId"])),
+            "lat":       loc.get("latitude"),
+            "lon":       loc.get("longitude"),
+            "city":      loc.get("city", ""),
+            "country":   loc.get("country", ""),
+            "source":    "windy",
+            "embed_url": embed,
+            "is_live":   bool(live_obj.get("embed")),
+        })
+    return cameras
+
+
+@app.get("/api/windy/webcams")
+async def get_windy_webcams(lat: float = None, lon: float = None, radius: int = 100, limit: int = 15):
+    """查詢 Windy 景觀攝影機（亞洲熱門景點）"""
+    if not WINDY_API_KEY:
+        return {"cameras": [], "message": "Windy API Key 未設定，請設定環境變數 WINDY_API_KEY"}
+
+    # 若指定座標，只查單點；否則查所有預設景點
+    if lat is not None and lon is not None:
+        search_locs = [{"lat": lat, "lon": lon, "radius": radius}]
+        cache_key = f"{lat:.1f}_{lon:.1f}_{radius}"  # 單點用座標當 key
+    else:
+        search_locs = _WINDY_SEARCH_LOCATIONS
+        cache_key = "preset_multi"
+    if cache_key in _windy_cache:
+        return {"cameras": _windy_cache[cache_key]}
+
+    all_cameras = []
+    seen_ids = set()
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        tasks = [_fetch_windy_nearby(client, loc["lat"], loc["lon"], loc.get("radius", 100), limit)
+                 for loc in search_locs]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for result in results:
+        if isinstance(result, list):
+            for cam in result:
+                if cam["id"] not in seen_ids and cam["lat"] and cam["lon"]:
+                    seen_ids.add(cam["id"])
+                    all_cameras.append(cam)
+
+    _windy_cache[cache_key] = all_cameras
+    print(f"[WINDY] 共載入 {len(all_cameras)} 個景觀攝影機")
+    return {"cameras": all_cameras}
+
+
+@app.get("/api/windy/debug")
+async def windy_debug():
+    """暫時 debug 端點：測試多種 Windy API URL 格式"""
+    if not WINDY_API_KEY:
+        return {"error": "no key"}
+    tests = [
+        ("nearby_query", "https://api.windy.com/webcams/api/v3/webcams",
+         {"nearby": "35.6762,139.6503,80", "limit": 3, "include": "location,player"}),
+        ("nearby_path",  "https://api.windy.com/webcams/api/v3/webcams/nearby/35.6762/139.6503/80",
+         {"limit": 3, "include": "location,player"}),
+        ("list_all",     "https://api.windy.com/webcams/api/v3/webcams",
+         {"limit": 3, "include": "location,player"}),
+    ]
+    results = {}
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        for name, url, params in tests:
+            try:
+                resp = await client.get(url, headers={"x-windy-api-key": WINDY_API_KEY}, params=params)
+                ct = resp.headers.get("content-type", "")
+                results[name] = {
+                    "status": resp.status_code,
+                    "body": resp.json() if "json" in ct else resp.text[:300]
+                }
+            except Exception as e:
+                results[name] = {"error": str(e)}
+    return results
+
+
 @app.get("/api/cam-proxy/{cam_id}")
 async def cam_proxy(cam_id: str):
     """
@@ -500,6 +630,19 @@ def get_doctors():
     doctors = [u for u in db.USERS.values() if u.get("role") == "doctor"]
     return {"doctors": doctors}
 
+@app.get("/api/patient/care-team")
+def get_patient_care_team(patient_id: str):
+    """取得病患的照護團隊（入院時由護理師設定，無需 HIS 整合）"""
+    patient = db.USERS.get(patient_id)
+    if not patient or patient.get("role") != "patient":
+        raise HTTPException(status_code=404, detail="病患不存在")
+    care_team = patient.get("care_team", {})
+    return {
+        "patient_name": patient.get("name"),
+        "bed": patient.get("bed"),
+        "care_team": care_team
+    }
+
 @app.get("/api/messages/{patient_id}")
 def get_patient_messages(patient_id: str):
     """取得病患的訊息歷史"""
@@ -516,74 +659,445 @@ class PatientMessage(BaseModel):
     # AI 情緒分析結果（由前端 Transformers.js 推論後上傳）
     sentiment: Optional[str] = None        # "positive" | "neutral" | "negative"
     sentiment_score: Optional[float] = None
+    # TTAS 分類結果（由前端呼叫 /api/triage 後附上）
+    ttas_level: Optional[int] = 3
+    ttas_category: Optional[str] = "常規護理"
+    ttas_summary: Optional[str] = ""
 
 @app.post("/api/messages")
-def send_patient_message(msg: PatientMessage):
+async def send_patient_message(msg: PatientMessage):
     """病患傳送狀態／留言（含 AI 情緒）"""
     _n = datetime.now()
     ts = f"{_n.year}/{_n.month}/{_n.day} {_n.hour:02d}:{_n.minute:02d}"
     user = db.USERS.get(msg.patient_id, {})
+    # 從病患的照護團隊取出指定醫生 id（入院時設定，無需 HIS 整合）
+    care_team = user.get("care_team", {})
+    # 用所有佇列中的最大 id +1，避免與硬編碼假資料衝突
+    all_ids = (
+        [m["id"] for m in db.MESSAGES] +
+        [m["id"] for m in db.NURSE_QUEUE] +
+        [m["id"] for m in db.RESIDENT_QUEUE] +
+        [m["id"] for m in db.ATTENDING_QUEUE]
+    )
+    new_id = max(all_ids, default=0) + 1
     new_msg = {
-        "id": len(db.MESSAGES) + 1,
+        "id": new_id,
         "patient_id": msg.patient_id,
         "bed": msg.bed,
         "emotion": msg.emotion,
         "text": msg.text or f"[{msg.emotion}]",
-        "doctor_id": msg.doctor_id,
+        "care_team": care_team,   # 帶入照護團隊，供路由使用
         "timestamp": ts,
         "replied": False,
         "reply_text": None,
         "sentiment": msg.sentiment,
         "sentiment_score": msg.sentiment_score,
+        "ttas_level": msg.ttas_level or 3,
+        "ttas_category": msg.ttas_category or "常規護理",
+        "ttas_summary": msg.ttas_summary or "",
+        "pushed_to_doctor": False,
+        "audit_log": [{"action": "patient_sent", "at": ts}],
     }
     db.MESSAGES.append(new_msg)
+    ttas_lvl = msg.ttas_level or 3
     pending = next((p for p in db.PENDING_PATIENTS if p["bed"] == msg.bed), None)
+    msg_text = msg.text or f"[{msg.emotion}]"
     if pending:
         pending["unread"] += 1
         pending["latest_emotion"] = msg.emotion
         pending["timestamp"] = ts
-        # AI 情緒自動升級優先標記：高信心負面情緒 → 自動標黃；已有紅色則不降級
-        if msg.sentiment == "negative" and (msg.sentiment_score or 0) >= 0.80:
-            if pending.get("star_color") == "none":
-                pending["star_color"] = "yellow"
-        # 記錄最新 AI 情緒供醫生端顯示
-        pending["ai_sentiment"]       = msg.sentiment
-        pending["ai_sentiment_score"] = msg.sentiment_score
+        pending["latest_message"] = msg_text   # ← 修：更新訊息預覽
+        # 取所有未回覆訊息中最緊急（最小）的 TTAS level
+        unread_msgs = [m for m in db.MESSAGES if m["bed"] == msg.bed and not m.get("replied")]
+        pending["latest_ttas_level"] = min((m.get("ttas_level", 3) for m in unread_msgs), default=ttas_lvl)
     else:
-        # 新病患：初始化並套用 AI 情緒
-        auto_color = "yellow" if (
-            msg.sentiment == "negative" and (msg.sentiment_score or 0) >= 0.80
-        ) else "none"
         db.PENDING_PATIENTS.append({
             "bed": msg.bed,
             "patient_name": user.get("name", "病患"),
             "latest_emotion": msg.emotion,
+            "latest_message": msg_text,        # ← 修：新增訊息預覽
             "unread": 1,
             "hospital": user.get("hospital", ""),
             "timestamp": ts,
-            "star_color": auto_color,
-            "ai_sentiment": msg.sentiment,
-            "ai_sentiment_score": msg.sentiment_score,
+            "latest_ttas_level": ttas_lvl,
+            "care_team": care_team,
         })
+    # 背景執行 AI 分流（不阻塞病患端）
+    asyncio.create_task(_background_route(new_msg))
+
     return {"success": True, "message": new_msg}
+
+
+async def _background_route(msg: dict):
+    """背景執行：呼叫 RAG 分流，將訊息分配到正確佇列"""
+    await asyncio.sleep(0)   # 讓 event loop 先回傳給病患端
+    try:
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        text = msg.get("text", "")
+        ttas_level = msg.get("ttas_level", 3)
+        if not api_key or not text:
+            # 無 API：L1→主治醫師 L2→住院醫師 L3/L4→護理師
+            if ttas_level == 1:
+                route = "attending"
+            elif ttas_level == 2:
+                route = "resident"
+            else:
+                route = "nurse"
+        else:
+            client = _anthropic.Anthropic(api_key=api_key)
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=200,
+                system=RAG_ROUTE_SYSTEM_PROMPT,
+                messages=[{"role": "user",
+                           "content": f"TTAS Level: {ttas_level}\n病患訊息：「{text}」\nTTAS分類：{msg.get('ttas_category','')}"}]
+            )
+            import json as _json
+            raw = resp.content[0].text.strip()
+            if raw.startswith("```"):
+                raw = re.sub(r"```json?\n?", "", raw).replace("```", "").strip()
+            result = _json.loads(raw)
+            route = result.get("route", "nurse")
+    except Exception:
+        lvl = msg.get("ttas_level", 3)
+        route = "attending" if lvl == 1 else "resident" if lvl == 2 else "nurse"
+
+    msg["route"] = route
+    msg["nurse_seen"] = False
+
+    # 根據分流結果決定加入哪個佇列（互斥，避免一則訊息進多個佇列）
+    if route == "nurse":
+        if not any(n["id"] == msg["id"] for n in db.NURSE_QUEUE):
+            db.NURSE_QUEUE.append(dict(msg))
+    elif route == "resident":
+        if not any(n["id"] == msg["id"] for n in db.RESIDENT_QUEUE):
+            db.RESIDENT_QUEUE.append(dict(msg))
+    elif route == "attending":
+        if not any(n["id"] == msg["id"] for n in db.ATTENDING_QUEUE):
+            db.ATTENDING_QUEUE.append(dict(msg))
+    else:
+        # fallback：無法辨識的 route 值，依 TTAS level 決定
+        lvl = msg.get("ttas_level", 3)
+        if lvl == 1 and not any(n["id"] == msg["id"] for n in db.ATTENDING_QUEUE):
+            db.ATTENDING_QUEUE.append(dict(msg))
+        elif lvl == 2 and not any(n["id"] == msg["id"] for n in db.RESIDENT_QUEUE):
+            db.RESIDENT_QUEUE.append(dict(msg))
+        elif not any(n["id"] == msg["id"] for n in db.NURSE_QUEUE):
+            db.NURSE_QUEUE.append(dict(msg))
+
+
+# ════════════════════════════════════════════════
+# RAG 知識庫（動態讀取 RAG資料庫/ 下的 .txt 檔案）
+# ════════════════════════════════════════════════
+
+_RAG_DIR = os.path.join(os.path.dirname(__file__), "..", "RAG資料庫")
+
+
+def _load_rag_docs(subfolder: str, max_chars: int = 12000) -> str:
+    """讀取 RAG資料庫/<subfolder>/ 下所有 .txt 檔，回傳合併後的文字。
+    若目錄不存在或檔案為空，回傳空字串。"""
+    folder = os.path.join(_RAG_DIR, subfolder)
+    if not os.path.isdir(folder):
+        return ""
+    parts = []
+    for fname in sorted(os.listdir(folder)):
+        if not fname.lower().endswith(".txt"):
+            continue
+        fpath = os.path.join(folder, fname)
+        try:
+            with open(fpath, encoding="utf-8") as f:
+                content = f.read().strip()
+            if content:
+                title = fname.replace(".txt", "")
+                parts.append(f"【{title}】\n{content}")
+        except Exception:
+            pass
+    combined = "\n\n".join(parts)
+    return combined[:max_chars] if len(combined) > max_chars else combined
+
+
+# 啟動時載入（fallback 至精簡摘要以防檔案缺失）
+_FALLBACK_NURSE = """【護理人員法（護理師職責準則）】
+護理師可獨立處理：生命徵象監測、傷口換藥、給藥、術後照護、衛教指導、生活需求協助。
+護理師需轉介醫師：新症狀/疼痛加劇、藥物調整需求、病情評估與診斷需求。"""
+
+_FALLBACK_RESIDENT = """【住院醫師職責準則（衛福法規）】
+住院醫師可獨立處理（在主治醫師指導下）：一般醫療諮詢、常規藥物處方調整、初步病情評估。
+住院醫師需上報主治：診斷不確定、病情惡化、高風險醫療決策。"""
+
+_FALLBACK_ATTENDING = """【主治醫師職責準則（醫師法）】
+主治醫師負責：最終診斷決策、複雜病情評估、手術評估、跨科別會診、出院計劃、危急病情第一責任人。"""
+
+NURSING_LAW_SUMMARY   = _load_rag_docs("護理師")   or _FALLBACK_NURSE
+RESIDENT_DOCTOR_SUMMARY = _load_rag_docs("住院醫師") or _FALLBACK_RESIDENT
+ATTENDING_DOCTOR_SUMMARY = _load_rag_docs("主治醫師") or _FALLBACK_ATTENDING
+
+_rag_loaded = {
+    "護理師":  bool(_load_rag_docs("護理師")),
+    "住院醫師": bool(_load_rag_docs("住院醫師")),
+    "主治醫師": bool(_load_rag_docs("主治醫師")),
+}
+print(f"[RAG] 載入狀態：{ {k: ('✓ TXT' if v else '✗ fallback') for k,v in _rag_loaded.items()} }")
+
+RAG_ROUTE_SYSTEM_PROMPT = f"""你是醫院訊息分流系統。根據台灣醫療法規準則，判斷病患訊息應路由給哪個角色。
+
+{NURSING_LAW_SUMMARY}
+
+{RESIDENT_DOCTOR_SUMMARY}
+
+{ATTENDING_DOCTOR_SUMMARY}
+
+# 分流規則（固定）
+- TTAS Level 1（立即急症）→ 主治醫師，route = "attending"
+- TTAS Level 2（緊急醫療）→ 住院醫師，route = "resident"
+- TTAS Level 3（常規護理）→ 護理師，route = "nurse"
+- TTAS Level 4（生活協助）→ 護理師，route = "nurse"
+
+# 輸出格式（只輸出 JSON）
+{{"route": "nurse|resident|attending", "reasoning": "理由（15字內）"}}"""
+# ════════════════════════════════════════════════
+# 醫聲相伴 - TTAS 檢傷分類
+# ════════════════════════════════════════════════
+
+TTAS_SYSTEM_PROMPT = """你是一個專業的「醫療需求檢傷分類 AI」，依照台灣急診檢傷與急迫度分級量表（TTAS）精神，應用於住院病房護理溝通情境。
+
+病患透過系統傳送訊息給護理站。請判斷訊息的緊急程度，並提供結構化回應。
+
+# 分類準則
+- Level 1 (立即急症)：呼吸困難、突發劇痛、大量出血、意識改變。攸關生命，1~5 分鐘內須處理。
+- Level 2 (緊急醫療)：跌倒風險、管路異常、新發生嘔吐/不適、需協助的高風險動作。15~30 分鐘內須處理。
+- Level 3 (常規護理)：換藥、點滴即將滴完、輕微疼痛、常規藥物索取。1~2 小時內處理。
+- Level 4 (生活協助)：環境調整、飲食詢問、非醫療資訊、正向回饋。可由行政人員處理。
+
+# 疼痛特別規則
+1. 伴隨「突然」「劇烈」「胸口」「喘」「無法忍受」→ 升級為 Level 1
+2. 「傷口悶痛」「有點痛」且無加劇跡象 → Level 3
+3. 語意不清或無法確定嚴重程度 → 往高風險級別判定（Up-triage）
+
+# 安全第一原則
+寧可過度判定為緊急，也不要低估任何可能的危險。
+
+# 輸出格式
+請只輸出 JSON，不要有其他文字：
+{
+  "level": 1,
+  "category": "立即急症",
+  "summary": "一句話總結病患需求",
+  "reasoning": "判斷理由（20字內）",
+  "follow_up": "若資訊不足需追問的問題，Level 1/2 此欄位必須為空字串"
+}"""
+
+class TriageRequest(BaseModel):
+    text: str
+    patient_name: Optional[str] = "病患"
+
+@app.post("/api/triage")
+async def triage_message(req: TriageRequest):
+    """TTAS 檢傷分類：呼叫 Claude API 判斷訊息緊急程度"""
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {"success": False, "error": "API Key 未設定", "fallback": True,
+                "result": {"level": 2, "category": "緊急醫療", "summary": req.text[:30],
+                           "reasoning": "API 未設定，保守升級", "follow_up": ""}}
+    try:
+        client = _anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            system=TTAS_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": f"病患訊息：「{req.text}」"}]
+        )
+        import json as _json
+        raw = response.content[0].text.strip()
+        # 清除可能的 markdown code fence
+        if raw.startswith("```"):
+            raw = re.sub(r"```json?\n?", "", raw).replace("```", "").strip()
+        result = _json.loads(raw)
+        return {"success": True, "result": result}
+    except Exception as e:
+        # API 失敗：保守預設 Level 2，直接送出
+        return {"success": False, "error": str(e), "fallback": True,
+                "result": {"level": 2, "category": "緊急醫療", "summary": req.text[:30],
+                           "reasoning": "API 失敗，保守升級", "follow_up": ""}}
+
+
+# ════════════════════════════════════════════════
+# 醫聲相伴 - 護理師端
+# ════════════════════════════════════════════════
+
+@app.get("/api/nurse/messages")
+def get_nurse_messages(hospital: Optional[str] = None):
+    """護理師端：取得分流給護理師的訊息"""
+    msgs = list(db.NURSE_QUEUE)
+    if hospital:
+        msgs = [m for m in msgs if db.USERS.get(m.get("patient_id", ""), {}).get("hospital") == hospital]
+    msgs_sorted = sorted(msgs, key=lambda x: (x.get("ttas_level", 4), x.get("timestamp", "")))
+    return {"messages": msgs_sorted}
+
+@app.get("/api/doctor/messages/resident")
+def get_resident_messages(hospital: Optional[str] = None):
+    """住院醫師端：取得分流給住院醫師的訊息"""
+    msgs = list(db.RESIDENT_QUEUE)
+    if hospital:
+        msgs = [m for m in msgs if db.USERS.get(m.get("patient_id", ""), {}).get("hospital") == hospital]
+    msgs_sorted = sorted(msgs, key=lambda x: (x.get("ttas_level", 4), x.get("timestamp", "")))
+    return {"messages": msgs_sorted}
+
+@app.get("/api/doctor/messages/attending")
+def get_attending_messages(hospital: Optional[str] = None):
+    """主治醫師端：取得分流給主治醫師的訊息"""
+    msgs = list(db.ATTENDING_QUEUE)
+    if hospital:
+        msgs = [m for m in msgs if db.USERS.get(m.get("patient_id", ""), {}).get("hospital") == hospital]
+    msgs_sorted = sorted(msgs, key=lambda x: (x.get("ttas_level", 4), x.get("timestamp", "")))
+    return {"messages": msgs_sorted}
+
+
+class NurseSeenRequest(BaseModel):
+    message_id: int
+    nurse_id: str
+
+@app.post("/api/nurse/seen")
+def nurse_mark_seen(req: NurseSeenRequest):
+    """護理師標記已讀"""
+    _n = datetime.now()
+    ts = f"{_n.year}/{_n.month}/{_n.day} {_n.hour:02d}:{_n.minute:02d}"
+    for nq in db.NURSE_QUEUE:
+        if nq["id"] == req.message_id:
+            nq["nurse_seen"] = True
+            nq.setdefault("audit_log", []).append(
+                {"action": "nurse_seen", "by": req.nurse_id, "at": ts})
+            break
+    return {"success": True}
+
+@app.get("/api/messages/history")
+def get_message_history(bed: str, limit: int = 5):
+    """取得指定床號最近 N 筆訊息（含回覆），供 AI 參考上下文"""
+    msgs = [m for m in db.MESSAGES if m.get("bed") == bed]
+    msgs.sort(key=lambda m: m.get("timestamp", ""))
+    recent = msgs[-limit:]
+    return {"messages": [
+        {
+            "text": m.get("text", ""),
+            "reply_text": m.get("reply_text", ""),
+            "timestamp": m.get("timestamp", ""),
+            "ttas_level": m.get("ttas_level"),
+            "replied": m.get("replied", False),
+        }
+        for m in recent
+    ]}
+
+@app.post("/api/nurse/ai-suggest")
+async def nurse_ai_suggest(body: dict):
+    """護理師 AI 建議回覆草稿（基於 RAG 護理法規知識，需護理師審閱後送出）"""
+    msg_text      = body.get("message_text", "")
+    ttas_level    = body.get("ttas_level", 3)
+    ttas_category = body.get("ttas_category", "常規護理")
+    ttas_summary  = body.get("ttas_summary", "")
+    history       = body.get("history", [])  # 最近 3 則對話紀錄
+    if not msg_text:
+        return {"success": False, "suggestion": "", "error": "訊息內容為空"}
+    try:
+        client = _anthropic.Anthropic()
+        # 組成近期對話上下文（最多 3 筆）
+        history_ctx = ""
+        if history:
+            lines = []
+            for h in history[-3:]:
+                lines.append(f"  病患：「{h.get('text','')}」")
+                if h.get("replied") and h.get("reply_text"):
+                    lines.append(f"  護理師回覆：「{h.get('reply_text','')}」")
+            if lines:
+                history_ctx = "\n\n近期對話紀錄（供參考，勿重複已回覆內容）：\n" + "\n".join(lines)
+        system_prompt = f"""你是護理師助理 AI，協助護理師草擬對住院病患的回覆訊息。
+
+護理法規知識庫（來源：RAG資料庫）：
+{NURSING_LAW_SUMMARY}
+
+草稿撰寫準則：
+- 語氣溫暖、親切、簡短（60字以內）
+- 只回應護理師職責範圍內的事項
+- 若問題需要醫師判斷，回覆「將協助通知醫師」，不做醫療建議
+- 不做任何診斷判斷
+- 結尾可加護理關懷語
+- 只輸出回覆內容本身，不要加任何前綴或說明"""
+
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            system=system_prompt,
+            messages=[{
+                "role": "user",
+                "content": f"病患訊息（TTAS Level {ttas_level}｜{ttas_category}{('｜' + ttas_summary) if ttas_summary else ''}）：\n「{msg_text}」{history_ctx}\n\n請生成護理師回覆草稿："
+            }]
+        )
+        suggestion = resp.content[0].text.strip()
+        return {"success": True, "suggestion": suggestion}
+    except Exception as e:
+        return {"success": False, "suggestion": "", "error": str(e)}
+
+
+@app.post("/api/nurse/reply")
+async def nurse_reply(body: dict):
+    """護理師直接回覆病患（Level 3/4 低優先訊息）"""
+    msg_id = body.get("message_id")
+    reply_text = body.get("reply_text", "")
+    nurse_id = body.get("nurse_id", "")
+    _n = datetime.now()
+    ts = f"{_n.year}/{_n.month}/{_n.day} {_n.hour:02d}:{_n.minute:02d}"
+
+    msg = next((m for m in db.MESSAGES if m["id"] == msg_id), None)
+    if not msg:
+        raise HTTPException(status_code=404, detail="訊息不存在")
+
+    msg["replied"] = True
+    msg["reply_text"] = reply_text
+    nurse_name = db.USERS.get(nurse_id, {}).get("name", "護理師")
+    msg.setdefault("audit_log", []).append(
+        {"action": "nurse_replied", "by": nurse_name, "at": ts, "text": reply_text})
+    # 從 NURSE_QUEUE 移除已回覆的訊息，避免護理師列表持續堆積
+    db.NURSE_QUEUE[:] = [m for m in db.NURSE_QUEUE if m["id"] != msg_id]
+    # 更新 PENDING_PATIENTS：若該病床所有訊息都已回覆，從待辦移除
+    unreplied = [m for m in db.MESSAGES if m.get("bed") == msg.get("bed") and not m.get("replied")]
+    if not unreplied:
+        db.PENDING_PATIENTS[:] = [p for p in db.PENDING_PATIENTS if p["bed"] != msg.get("bed")]
+    return {"success": True}
 
 
 # ════════════════════════════════════════════════
 # 醫聲相伴 - 醫生端
 # ════════════════════════════════════════════════
 @app.get("/api/doctor/pending")
-def get_pending_patients(hospital: Optional[str] = None):
-    """醫生端：待回覆病患清單"""
-    pending = db.PENDING_PATIENTS
-    done = db.DONE_PATIENTS
-    
-    if hospital:
-        pending = [p for p in pending if p.get("hospital") == hospital]
-        done = [p for p in done if p.get("hospital") == hospital]
+def get_pending_patients(hospital: Optional[str] = None, doctor_type: Optional[str] = None, doctor_id: Optional[str] = None):
+    """醫生端：待回覆病患清單（依登入醫生 ID 對應 care_team 精確篩選，防止看到不相關病患）"""
+    pending = list(db.PENDING_PATIENTS)
+    done = list(db.DONE_PATIENTS)
+
+    if doctor_id:
+        # 精確篩選：care_team 對應 + TTAS level 必須符合角色（醫生只看醫生層級的案件）
+        role_key   = 'resident' if doctor_type == 'resident' else 'attending'
+        ttas_level = 2          if doctor_type == 'resident' else 1
+        def belongs_to_doctor(p):
+            in_care_team = p.get('care_team', {}).get(role_key, {}).get('id') == doctor_id
+            right_level  = p.get('latest_ttas_level') == ttas_level
+            return in_care_team and right_level
+        pending = [p for p in pending if belongs_to_doctor(p)]
+        done    = [p for p in done    if belongs_to_doctor(p)]
+    else:
+        # fallback（未帶 doctor_id 時）：依 TTAS level + hospital 篩選
+        if doctor_type == 'resident':
+            pending = [p for p in pending if p.get('latest_ttas_level') == 2]
+            done    = [p for p in done    if p.get('latest_ttas_level') == 2]
+        elif doctor_type == 'attending':
+            pending = [p for p in pending if p.get('latest_ttas_level') == 1]
+            done    = [p for p in done    if p.get('latest_ttas_level') == 1]
+        if hospital:
+            pending = [p for p in pending if p.get("hospital") == hospital]
+            done    = [p for p in done    if p.get("hospital") == hospital]
         
     # 計算虛擬統計數據
     total_served = len(done) + len(pending)
-    urgent_cases = sum(1 for p in pending if p.get("star_color") == "red")
+    urgent_cases = sum(1 for p in pending if p.get("latest_ttas_level", 3) <= 2)
     avg_hr = 2 if total_served < 5 else 4
     avg_min = 15 if total_served < 5 else 30
     
@@ -917,19 +1431,36 @@ def submit_youtube_link(req: YoutubeSubmitRequest):
 # ── 志工影響力回饋 ────────────────────────────────────
 @app.post("/api/crowd/thank/{task_id}")
 def thank_volunteer(task_id: str, patient_id: str = ""):
-    """病患對完成的任務表達感謝 → 增加志工影響力分數（patient_id 保留供未來使用）"""
+    """病患對完成的任務表達感謝 → 增加志工影響力分數並建立通知"""
+    from datetime import datetime as _dt
     task = next((t for t in db.CROWD_TASKS if t["id"] == task_id), None)
     if not task:
         raise HTTPException(status_code=404, detail="任務不存在")
     task.setdefault("thanks_count", 0)
     task["thanks_count"] += 1
-    # 回饋給志工（找到上傳者的 stats，加 10 bonux points）
     uploader = task.get("uploader_id", "crowd_001")
     stats = db.CROWD_STATS.get(uploader)
     if stats:
         stats["points"] = stats.get("points", 0) + 10
         stats.setdefault("thanks_received", 0)
         stats["thanks_received"] += 1
+    # 建立感謝通知，讓志工在通知列看到
+    patient = db.USERS.get(patient_id, {})
+    patient_name = patient.get("name", "病患")
+    ts = _dt.now().strftime("%Y/%m/%d %H:%M")
+    db.RATINGS.append({
+        "id": f"thank_{task_id}_{len(db.RATINGS)}",
+        "task_id": task_id,
+        "patient_id": patient_id,
+        "patient_name": patient_name,
+        "uploader_id": uploader,
+        "stars": 0,          # 0 表示純感謝，非星級評分
+        "message_text": "💝 病患向你表達了感謝！",
+        "voice_url": None,
+        "timestamp": ts,
+        "read": False,
+        "is_thank": True,    # 標記為感謝型通知
+    })
     return {"success": True, "thanks_count": task["thanks_count"]}
 
 
@@ -947,9 +1478,13 @@ async def rate_video(body: dict):
 
     task = next((t for t in db.CROWD_TASKS if t["id"] == task_id), None)
     if not task:
-        raise HTTPException(status_code=404, detail="任務不存在")
-
-    uploader_id  = task.get("uploader_id", "")
+        # 心願影片（wish_xxx）→ 從 WISHLISTS 找 fulfilled_by 作為 uploader
+        wish = next((w for w in db.WISHLISTS if w["id"] == task_id), None)
+        if not wish:
+            raise HTTPException(status_code=404, detail="任務不存在")
+        uploader_id = wish.get("fulfilled_by", "")
+    else:
+        uploader_id  = task.get("uploader_id", "")
     patient      = db.USERS.get(patient_id, {})
     patient_name = patient.get("name", "病患")
     ts = _dt.now().strftime("%Y/%m/%d %H:%M")
@@ -1079,6 +1614,18 @@ def get_notifications(user_id: str):
                     "is_prescription": task.get("task_type") == "prescription",
                     "timestamp": task.get("timestamp") or task.get("created_at", ""),
                     "read": task.get("patient_read", False),
+                })
+
+        # 醫師預計回覆時間通知
+        for eta in db.ETA_NOTICES:
+            if eta["patient_id"] == user_id:
+                notifs.append({
+                    "id": eta["id"],
+                    "type": "eta_notice",
+                    "eta": eta["eta"],
+                    "doctor_name": eta.get("doctor_name", "醫師"),
+                    "timestamp": eta["timestamp"],
+                    "read": eta.get("read", False),
                 })
 
         # 心願達成通知
@@ -1256,11 +1803,16 @@ class AIReplyRequest(BaseModel):
     patient_name: str = ""
     patient_emotion: str = ""
     patient_text: str = ""
+    doctor_type: str = "resident"  # "resident" | "attending"
 
 @app.post("/api/doctor/ai-preview")
 async def doctor_ai_preview(req: AIReplyRequest):
     """用 Claude AI 為醫生生成回覆草稿（醫生可修改後送出）"""
+    rag = ATTENDING_DOCTOR_SUMMARY if req.doctor_type == "attending" else RESIDENT_DOCTOR_SUMMARY
     prompt = f"""你是一位溫暖、有耐心的醫生助理，正在協助醫生回覆住院病患的訊息。
+請嚴格遵守以下醫師法規職責範疇：
+
+{rag}
 
 病患資訊：
 - 姓名：{req.patient_name or "病患"}
@@ -1270,7 +1822,7 @@ async def doctor_ai_preview(req: AIReplyRequest):
 請以醫生的第一人稱，用繁體中文寫一段溫暖、專業的回覆（100字以內）。
 要求：
 1. 先回應病患的情緒與感受
-2. 給予醫療上的簡短說明或安慰
+2. 給予符合醫師職責範疇的醫療說明或安慰
 3. 結尾鼓勵病患，讓他感到被關心
 4. 語氣自然親切，不要過於制式
 
@@ -1294,6 +1846,65 @@ async def doctor_ai_preview(req: AIReplyRequest):
         return {"success": True, "ai_reply": fallback, "fallback": True, "error": str(e)}
 
 
+# ── Wikipedia RAG 快取 ───────────────────────────────────────────
+_wiki_cache: dict = {}   # query -> summary text or ""
+
+async def _fetch_wikipedia_summary(location_name: str) -> str:
+    """
+    用逐步縮短策略搜尋中文維基百科，回傳摘要（最多 300 字）。
+    搜尋順序：完整名稱 → 移除最後一個詞 → … → 放棄回傳 ""
+    結果快取避免重複請求。
+    """
+    import re as _re
+
+    def _candidates(name: str):
+        # 移除無意義後綴
+        name = _re.sub(r'(攝影機|鏡頭|即時|直播|監視|Camera|cam)\S*$', '', name, flags=_re.IGNORECASE).strip()
+        yield name
+        for _ in range(3):
+            shorter = _re.sub(r'[\u4e00-\u9fff\w]{2,4}$', '', name).strip()
+            if not shorter or shorter == name:
+                break
+            name = shorter
+            yield name
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for query in _candidates(location_name):
+            if not query:
+                continue
+            if query in _wiki_cache:
+                return _wiki_cache[query]
+            try:
+                search_resp = await client.get(
+                    "https://zh.wikipedia.org/w/api.php",
+                    params={"action": "query", "list": "search", "srsearch": query,
+                            "format": "json", "utf8": 1, "srlimit": 1}
+                )
+                results = search_resp.json().get("query", {}).get("search", [])
+                if not results:
+                    _wiki_cache[query] = ""
+                    continue
+                title = results[0]["title"]
+                summary_resp = await client.get(
+                    f"https://zh.wikipedia.org/api/rest_v1/page/summary/{title}"
+                )
+                if summary_resp.status_code != 200:
+                    _wiki_cache[query] = ""
+                    continue
+                extract = summary_resp.json().get("extract", "")
+                summary = extract[:300].strip()
+                _wiki_cache[query] = summary
+                if summary:
+                    print(f"[WIKI RAG] '{location_name}' → '{title}' ({len(summary)}字)")
+                    return summary
+            except Exception as e:
+                print(f"[WIKI RAG] 查詢失敗 '{query}': {e}")
+                continue
+
+    _wiki_cache[location_name] = ""
+    return ""
+
+
 class VideoDescribeRequest(BaseModel):
     location_name: str = ""
     context: str = ""
@@ -1301,22 +1912,26 @@ class VideoDescribeRequest(BaseModel):
 
 @app.post("/api/video/ai-describe")
 async def video_ai_describe(req: VideoDescribeRequest):
-    """用 Claude Haiku 介紹景點或分析影像畫面"""
+    """用 Claude Haiku + Wikipedia RAG 介紹景點或分析影像畫面"""
     try:
         client = _anthropic.Anthropic()
-        if req.image_base64:
-            # 有擷圖 → 視覺分析
-            prompt = f"""你是一位溫暖的旅遊導覽員，正在為一位住院的病患介紹眼前的影像。
-地點名稱：{req.location_name or "未知地點"}
 
-請根據圖片中的實際畫面，用繁體中文寫一段生動、療癒的景點介紹（80-120字）。
+        # Wikipedia RAG（與主流程平行，timeout 5s 不影響整體）
+        wiki_summary = await _fetch_wikipedia_summary(req.location_name) if req.location_name else ""
+        wiki_block = f"\n\n【維基百科資料】\n{wiki_summary}" if wiki_summary else ""
+
+        if req.image_base64:
+            # 有擷圖 → 視覺分析 + Wikipedia RAG
+            prompt = f"""你是一位溫暖的旅遊導覽員，正在為一位住院的病患介紹眼前的影像。
+地點名稱：{req.location_name or "未知地點"}{wiki_block}
+
+請根據上方資料與圖片中的實際畫面，用繁體中文寫一段生動、療癒的景點介紹（80-120字）。
 要求：
-1. 描述畫面中看到的景色、氛圍
+1. 結合維基百科的背景知識與畫面中的真實景色
 2. 語氣溫暖，讓病患感到身臨其境
-3. 結尾可加一句鼓勵的話
+3. 結尾加一句鼓勵病患的話
 
 只輸出介紹正文，不要加前綴說明。"""
-            import base64 as _b64
             img_data = req.image_base64
             if "," in img_data:
                 img_data = img_data.split(",", 1)[1]
@@ -1325,22 +1940,20 @@ async def video_ai_describe(req: VideoDescribeRequest):
                 max_tokens=256,
                 messages=[{"role": "user", "content": [
                     {"type": "image", "source": {
-                        "type": "base64",
-                        "media_type": "image/jpeg",
-                        "data": img_data
+                        "type": "base64", "media_type": "image/jpeg", "data": img_data
                     }},
                     {"type": "text", "text": prompt}
                 ]}]
             )
         else:
-            # 無擷圖（直播 iframe CORS 限制）→ 用地名生成介紹
+            # 無擷圖（直播 iframe CORS 限制）→ 純 Wikipedia RAG + 地名
             prompt = f"""你是一位溫暖的旅遊導覽員，正在為一位住院的病患介紹一個景點。
 景點名稱：{req.location_name or "美麗的地方"}
-補充資訊：{req.context or ""}
+補充資訊：{req.context or ""}{wiki_block}
 
 請用繁體中文寫一段生動、療癒的景點介紹（80-120字）。
 要求：
-1. 描述這個地方的特色景色與氛圍
+1. 優先根據維基百科資料介紹這個地方的特色與歷史
 2. 語氣溫暖，讓病患感到身臨其境、放鬆心情
 3. 結尾加一句鼓勵病患的話
 
@@ -1350,7 +1963,12 @@ async def video_ai_describe(req: VideoDescribeRequest):
                 max_tokens=256,
                 messages=[{"role": "user", "content": prompt}]
             )
-        return {"success": True, "description": message.content[0].text.strip()}
+
+        return {
+            "success": True,
+            "description": message.content[0].text.strip(),
+            "wiki_found": bool(wiki_summary),
+        }
     except Exception as e:
         print(f"[AI-DESCRIBE ERROR] {type(e).__name__}: {e}")
         loc = req.location_name or "這個地方"
@@ -1364,6 +1982,40 @@ async def video_ai_describe(req: VideoDescribeRequest):
 class DoctorReply(BaseModel):
     message_id: int
     reply_text: str
+    reply_eta: str = ""   # 預計回覆時間區段，如 "今天下午 2-4 點"
+
+class EtaNoticeRequest(BaseModel):
+    bed: str
+    eta: str
+    doctor_id: str = ""
+
+@app.post("/api/doctor/pending/{bed}/eta")
+def set_reply_eta(bed: str, req: EtaNoticeRequest):
+    """醫師設定預計回覆時間，寫入病患通知"""
+    from datetime import datetime
+    # 找到此病床的病患 ID
+    patient_user = next(
+        (u for u in db.USERS.values() if u.get("role") == "patient" and u.get("bed") == bed),
+        None
+    )
+    if not patient_user:
+        raise HTTPException(status_code=404, detail="找不到此病床病患")
+    sender = db.USERS.get(req.doctor_id, {})
+    sender_name = sender.get("name", "醫護人員")
+    notice_id = f"eta_{bed}_{int(datetime.now().timestamp())}"
+    # 移除舊的同病床 ETA 通知，保持最新一筆
+    db.ETA_NOTICES[:] = [n for n in db.ETA_NOTICES if n["patient_id"] != patient_user["id"]]
+    db.ETA_NOTICES.append({
+        "id": notice_id,
+        "patient_id": patient_user["id"],
+        "bed": bed,
+        "eta": req.eta,
+        "doctor_name": sender_name,
+        "timestamp": datetime.now().strftime("%Y/%m/%d %H:%M"),
+        "read": False,
+    })
+    return {"success": True, "patient_id": patient_user["id"]}
+
 
 @app.post("/api/doctor/reply")
 def doctor_reply(reply: DoctorReply):
@@ -1371,9 +2023,10 @@ def doctor_reply(reply: DoctorReply):
     msg = next((m for m in db.MESSAGES if m["id"] == reply.message_id), None)
     if not msg:
         raise HTTPException(status_code=404, detail="訊息不存在")
-    llm_text = f"您好！{reply.reply_text} 如有任何不適，請隨時告訴護理師，我們都在這裡陪您。💙"
     msg["replied"] = True
-    msg["reply_text"] = llm_text
+    msg["reply_text"] = reply.reply_text  # 直接儲存醫師原文，不強制包裝
+    if reply.reply_eta:
+        msg["reply_eta"] = reply.reply_eta   # 儲存預計回覆時間
     bed = msg["bed"]
     unreplied = [m for m in db.MESSAGES if m["bed"] == bed and not m["replied"]]
     if not unreplied:
@@ -1388,7 +2041,6 @@ def doctor_reply(reply: DoctorReply):
                 "unread": 0,
                 "hospital": patient_user.get("hospital", ""),
                 "timestamp": msg.get("timestamp", ""),
-                "star_color": "none",
             })
     return {"success": True, "llm_reply": llm_text}
 
@@ -1522,19 +2174,30 @@ def llm_rewrite(req: LLMRewriteRequest):
 class EmpathyRewriteRequest(BaseModel):
     raw_text: str
     patient_emotion: Optional[str] = ""
+    history: Optional[list] = []
 
 @app.post("/api/llm/empathy-rewrite")
 def llm_empathy_rewrite(req: EmpathyRewriteRequest):
-    """使用 Claude AI 將醫師的專業回覆轉譯為更具同理心與易讀性的溫暖語句"""
+    """使用 Claude AI 將醫師/護理師的專業回覆轉譯為更具同理心與易讀性的溫暖語句"""
     try:
         client = _anthropic.Anthropic()
         emotion_hint = f"（病患目前情緒：{req.patient_emotion}）" if req.patient_emotion else ""
+        # 近期對話上下文（最多 3 筆）
+        history_ctx = ""
+        if req.history:
+            lines = []
+            for h in req.history[-3:]:
+                lines.append(f"  病患：「{h.get('text','')}」")
+                if h.get("replied") and h.get("reply_text"):
+                    lines.append(f"  回覆：「{h.get('reply_text','')}」")
+            if lines:
+                history_ctx = "\n\n近期病患對話紀錄（供語氣參考）：\n" + "\n".join(lines)
         prompt = (
-            f"你是一位醫院的溫暖溝通助理。請將以下醫師的專業回覆，"
+            f"你是一位醫院的溫暖溝通助理。請將以下回覆，"
             f"改寫為更具同理心、溫暖、易讀的語句，讓病患感受到被關心與支持。"
-            f"保留所有醫療資訊，但使用更平易近人的語言，並適當加入關懷語氣。"
-            f"語言請用繁體中文。{emotion_hint}\n\n"
-            f"醫師原文：{req.raw_text}\n\n"
+            f"保留所有醫療/護理資訊，但使用更平易近人的語言，並適當加入關懷語氣。"
+            f"語言請用繁體中文。{emotion_hint}{history_ctx}\n\n"
+            f"原文：{req.raw_text}\n\n"
             f"請直接輸出改寫後的內容，不要加任何前綴說明。"
         )
         message = client.messages.create(
@@ -1547,7 +2210,7 @@ def llm_empathy_rewrite(req: EmpathyRewriteRequest):
         print(f"[EMPATHY-REWRITE ERROR] {type(e).__name__}: {e}")
         return {
             "success": True,
-            "rewritten": f"您好！感謝您的告知。{req.raw_text} 請放心，我們會一直陪伴您度過這段時間，如有任何不適，請隨時讓護理師知道。💙",
+            "rewritten": f"您好！感謝您的告知。{req.raw_text} 請放心，我們會一直陪伴您度過這段時間，如有任何不適，請隨時讓我們知道。💙",
             "fallback": True
         }
 
@@ -1600,6 +2263,14 @@ def get_crowd_stats(user_id: str):
         "month_streak":      stats.get("month_streak", 0),
     }
 
+@app.get("/api/crowd/tasks/{task_id}")
+def get_single_task(task_id: str):
+    """取得單一任務詳情（供親友深連結使用）"""
+    task = next((t for t in db.CROWD_TASKS if t["id"] == task_id), None)
+    if not task:
+        raise HTTPException(status_code=404, detail="任務不存在")
+    return {"task": task}
+
 @app.post("/api/crowd/tasks/{task_id}/complete")
 def complete_task(task_id: str):
     """群眾完成任務（模擬）"""
@@ -1632,59 +2303,38 @@ async def upload_video(
     with open(save_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # 標記任務完成並加分
+    # 標記任務狀態（不立即給積分，等 AI 分析後再核發）
     task = next((t for t in db.CROWD_TASKS if t["id"] == task_id), None)
-    points_earned = 0
+    base_points = 0
     if task:
-        # 視覺處方任務 → 等待醫生審核；一般任務 → 直接完成
+        # 視覺處方任務 → 等待醫生審核；一般任務 → 待 AI 審核後給分
         if task.get("task_type") == "prescription":
             task["status"] = "review"
         else:
-            task["status"] = "completed"
-        task["video_url"] = f"/uploads/{save_name}"
-        task["uploader_id"] = user_id
-        points_earned = task.get("points", 200)
+            task["status"] = "pending_ai"   # AI 分析完成後改為 completed
+        task["video_url"]    = f"/uploads/{save_name}"
+        task["uploader_id"]  = user_id
+        base_points          = task.get("points", 200)
 
     video_url = f"/uploads/{save_name}"
 
-    # 累計用戶積分（依登入帳號區分）
+    # completed 計數先加（影片已成功上傳）
     stats = db.CROWD_STATS.setdefault(user_id, {"completed": 0, "points": 0, "week_points": 0, "month_points": 0, "week_streak": 0, "month_streak": 0})
-    stats["points"]       += points_earned
-    stats["week_points"]   = stats.get("week_points", 0) + points_earned
-    stats["month_points"]  = stats.get("month_points", 0) + points_earned
-    stats["completed"]    += 1
-    new_total = stats["points"]
-
-    # 判斷排行榜名次（上傳後即時計算）
-    key_week = "week_points"
-    week_rank = 1 + sum(1 for uid, s in db.CROWD_STATS.items() if uid != user_id and s.get(key_week, 0) > stats[key_week])
-    month_rank = 1 + sum(1 for uid, s in db.CROWD_STATS.items() if uid != user_id and s.get("month_points", 0) > stats["month_points"])
-
-    # 判斷是否達到兌換門檻
-    REWARD_TIERS = [
-        {"threshold": 200,  "store": "7-ELEVEN",  "item": "大杯美式咖啡兌換券",  "icon": "☕"},
-        {"threshold": 1000, "store": "星巴克",     "item": "中杯星冰樂兌換券",    "icon": "🌟"},
-        {"threshold": 3000, "store": "Uber Eats",  "item": "NT$150 折扣碼",       "icon": "🎁"},
-    ]
-    milestone_reward = None
-    for tier in REWARD_TIERS:
-        prev = new_total - points_earned
-        if prev < tier["threshold"] <= new_total:
-            milestone_reward = tier
-            break
+    stats["completed"] += 1
 
     return {
         "success": True,
         "video_url": video_url,
         "filename": save_name,
-        "points_earned": points_earned,
-        "total_points": new_total,
+        "points_earned": 0,          # 積分待 AI 分析後透過 finalize_points 核發
+        "base_points": base_points,  # 前端顯示預期最高積分
+        "total_points": stats["points"],
         "task_id": task_id,
-        "milestone_reward": milestone_reward,
-        "week_rank": week_rank,
-        "month_rank": month_rank,
-        "week_points": stats["week_points"],
-        "month_points": stats["month_points"],
+        "milestone_reward": None,
+        "week_rank": 0,
+        "month_rank": 0,
+        "week_points": stats.get("week_points", 0),
+        "month_points": stats.get("month_points", 0),
     }
 
 
@@ -1703,6 +2353,75 @@ def add_points(user_id: str, req: PointsRequest):
 
 # ════════════════════════════════════════════════
 # 排行榜（競賽積分制）
+class FinalizePointsRequest(BaseModel):
+    user_id: str
+    score_pct: int   # AI 綜合符合度（0~100）
+
+REWARD_TIERS = [
+    {"threshold": 200,  "store": "7-ELEVEN",  "item": "大杯美式咖啡兌換券",  "icon": "☕"},
+    {"threshold": 1000, "store": "星巴克",     "item": "中杯星冰樂兌換券",    "icon": "🌟"},
+    {"threshold": 3000, "store": "Uber Eats",  "item": "NT$150 折扣碼",       "icon": "🎁"},
+]
+
+@app.post("/api/crowd/finalize_points/{task_id}")
+def finalize_points(task_id: str, req: FinalizePointsRequest):
+    """
+    AI 分析完成後核發積分。
+    - score_pct >= 70：完整積分
+    - score_pct < 70：按比例給分（score_pct / 70 * base_points），最低 0
+    """
+    task = next((t for t in db.CROWD_TASKS if t["id"] == task_id), None)
+    if not task:
+        raise HTTPException(status_code=404, detail="任務不存在")
+
+    base_points = task.get("points", 200)
+    score_pct   = max(0, min(100, req.score_pct))
+
+    if score_pct >= 70:
+        points_earned = base_points
+    else:
+        points_earned = int(score_pct / 70 * base_points)
+
+    # 標記任務完成
+    if task.get("status") == "pending_ai":
+        task["status"] = "completed"
+    task["ai_score_pct"]   = score_pct
+    task["points_awarded"] = points_earned
+
+    # 累計用戶積分
+    stats = db.CROWD_STATS.setdefault(req.user_id, {"completed": 0, "points": 0, "week_points": 0, "month_points": 0, "week_streak": 0, "month_streak": 0})
+    prev_total = stats["points"]
+    stats["points"]       += points_earned
+    stats["week_points"]   = stats.get("week_points", 0) + points_earned
+    stats["month_points"]  = stats.get("month_points", 0) + points_earned
+    new_total = stats["points"]
+
+    # 排行榜名次
+    user_id = req.user_id
+    week_rank  = 1 + sum(1 for uid, s in db.CROWD_STATS.items() if uid != user_id and s.get("week_points", 0) > stats["week_points"])
+    month_rank = 1 + sum(1 for uid, s in db.CROWD_STATS.items() if uid != user_id and s.get("month_points", 0) > stats["month_points"])
+
+    # 里程碑獎勵
+    milestone_reward = None
+    for tier in REWARD_TIERS:
+        if prev_total < tier["threshold"] <= new_total:
+            milestone_reward = tier
+            break
+
+    return {
+        "success":          True,
+        "points_earned":    points_earned,
+        "base_points":      base_points,
+        "score_pct":        score_pct,
+        "total_points":     new_total,
+        "milestone_reward": milestone_reward,
+        "week_rank":        week_rank,
+        "month_rank":       month_rank,
+        "week_points":      stats["week_points"],
+        "month_points":     stats["month_points"],
+    }
+
+
 # ════════════════════════════════════════════════
 _WEEK_REWARDS = [
     {"rank": 1, "store": "星巴克",    "item": "中杯星冰樂兌換券",  "icon": "🌟"},
@@ -1835,9 +2554,17 @@ def _load_clip_models():
         return False
 
 
-def _sample_frames_pil(video_path: str, n: int = 10):
+def _is_sharp(frame_bgr, threshold: float = 40.0) -> bool:
+    """用拉普拉斯變異數判斷幀是否清晰。"""
+    import cv2
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    return cv2.Laplacian(gray, cv2.CV_64F).var() >= threshold
+
+
+def _sample_frames_pil(video_path: str, n: int = 20):
     """
-    從影片均勻取樣 n 幀，回傳 PIL Image 列表。
+    從影片取樣最多 n 幀，回傳 PIL Image 列表。
+    策略：均勻取樣 n*3 個候選幀，過濾模糊幀後取前 n 清晰幀。
     支援 MP4 / WebM（含 MediaRecorder 錄製的 WebM）：
     - 有 frame_count → seeking 模式（快）
     - frame_count = 0 → sequential 模式（WebM 等無 index 容器）
@@ -1850,36 +2577,37 @@ def _sample_frames_pil(video_path: str, n: int = 10):
         cap = cv2.VideoCapture(video_path)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps   = cap.get(cv2.CAP_PROP_FPS) or 30
-        frames = []
+        candidates = []   # 原始 BGR 幀
 
         if total > 5:
             # ── seeking 模式（MP4 等有完整 index 的格式）
             start   = max(0, int(total * 0.05))
             end     = min(total - 1, int(total * 0.95))
-            indices = np.linspace(start, end, min(n, total), dtype=int)
+            indices = np.linspace(start, end, min(n * 3, total), dtype=int)
             for idx in indices:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
                 ret, frame = cap.read()
                 if ret:
-                    frames.append(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+                    candidates.append(frame)
         else:
             # ── sequential 模式（WebM MediaRecorder 無 frame_count）
             sample_every = max(1, int(fps / 3))   # ~3 fps 取樣
             fc = 0
-            while len(frames) < n * 3:            # 多讀一些再截取
+            while len(candidates) < n * 3:
                 ret, frame = cap.read()
                 if not ret:
                     break
                 if fc % sample_every == 0:
-                    frames.append(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+                    candidates.append(frame)
                 fc += 1
-            # 均勻取 n 幀
-            if len(frames) > n:
-                step = len(frames) / n
-                frames = [frames[int(i * step)] for i in range(n)]
 
         cap.release()
-        return frames
+
+        # 過濾模糊幀，最多保留 n 幀
+        sharp = [f for f in candidates if _is_sharp(f)]
+        selected = sharp[:n] if len(sharp) >= n // 2 else candidates[:n]
+
+        return [Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)) for f in selected]
     except Exception as e:
         print(f"Frame sampling error: {e}")
         return []
@@ -2336,13 +3064,17 @@ def delete_wishlist(wish_id: str):
 
 @app.post("/api/wishlist/{wish_id}/claim")
 def claim_wishlist(wish_id: str, req: WishlistClaimRequest):
-    """志工認領心願"""
+    """志工/親友認領心願（允許多人同時認領，各自上傳影片）"""
     wish = next((w for w in db.WISHLISTS if w["id"] == wish_id), None)
     if not wish:
         raise HTTPException(status_code=404, detail="心願不存在")
-    if wish.get("claimed_by"):
-        raise HTTPException(status_code=400, detail="此心願已被認領")
-    wish["claimed_by"] = req.crowd_id
+    # 改為多認領：紀錄所有認領者清單
+    claimers = wish.setdefault("claimers", [])
+    if req.crowd_id not in claimers:
+        claimers.append(req.crowd_id)
+    # 保留舊欄位相容性
+    if not wish.get("claimed_by"):
+        wish["claimed_by"] = req.crowd_id
     return {"success": True, "wish": wish}
 
 
@@ -2381,10 +3113,25 @@ async def fulfill_wish(
     save_path = os.path.join(UPLOAD_DIR, save_name)
     with open(save_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
+    video_url = f"/uploads/{save_name}"
+    ts_now = datetime.now().strftime("%Y/%m/%d %H:%M")
+    uploader_info = db.USERS.get(crowd_id, {})
+
+    # 多影片清單：每個上傳者各自一筆
+    wish.setdefault("videos", [])
+    wish["videos"].append({
+        "uploader_id": crowd_id,
+        "uploader_name": uploader_info.get("name", "志工"),
+        "video_url": video_url,
+        "uploaded_at": ts_now,
+        "patient_rated": False,
+    })
+    # 保留舊欄位相容性（取最新一筆）
     wish["fulfilled"] = True
     wish["fulfilled_by"] = crowd_id
-    wish["fulfilled_at"] = datetime.now().strftime("%Y/%m/%d %H:%M")
-    wish["fulfilled_video_url"] = f"/uploads/{save_name}"
+    wish["fulfilled_at"] = ts_now
+    wish["fulfilled_video_url"] = video_url
+
     # 給志工加分
     stats = db.CROWD_STATS.setdefault(crowd_id, {"completed": 0, "points": 0, "week_points": 0, "month_points": 0, "week_streak": 0, "month_streak": 0})
     bonus = 200
@@ -2392,4 +3139,4 @@ async def fulfill_wish(
     stats["week_points"] = stats.get("week_points", 0) + bonus
     stats["month_points"] = stats.get("month_points", 0) + bonus
     stats["completed"] = stats.get("completed", 0) + 1
-    return {"ok": True, "video_url": wish["fulfilled_video_url"]}
+    return {"ok": True, "video_url": video_url, "total_videos": len(wish["videos"])}

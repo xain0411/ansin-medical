@@ -13,6 +13,7 @@ dependencies = [
     "Pillow>=10.0.0",
     "av>=12.0.0",
     "anthropic>=0.30.0",
+    "python-dotenv>=1.2.2",
 ]
 
 [tool.uv]

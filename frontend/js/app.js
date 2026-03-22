@@ -1,5 +1,8 @@
 // frontend/js/app.js — 前端主邏輯與三端互動控制
 
+// ── 麥克風 SVG 圖示常數（統一使用） ─────────────────
+const _MIC = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px;flex-shrink:0"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>`;
+
 // ── 字體大小切換系統 ───────────────────────────────
 const FONT_SIZES = ['small', 'medium', 'large'];
 const FONT_LABELS = { small: '小', medium: '中', large: '大' };
@@ -92,6 +95,7 @@ document.querySelectorAll(".role-card").forEach((card) => {
     if (role === "patient") goTo("screen-login");
     else if (role === "doctor") goTo("screen-doctor-login");
     else if (role === "crowd") goTo("screen-crowd-login");
+    else if (role === "nurse") goTo("screen-nurse-login");
   });
 });
 
@@ -167,17 +171,27 @@ document.getElementById("loginBtn")?.addEventListener("click", async () => {
   }
 });
 
+// ── 醫師登入：身分由帳號決定 ──────────────────────
+
 // ── 登入（醫生）──────────────────────────────────
 document.getElementById("doctorLoginBtn")?.addEventListener("click", async () => {
   const userId = document.getElementById("doctorUserId").value.trim() || "doctor_001";
   const password = document.getElementById("doctorPassword").value || "123";
   try {
     const data = await api.login(userId, password);
-    state.currentUser = data.user;
+    const u = data.user;
+    state.currentUser = u;
+    // 由帳號決定身分，更新 topbar 標籤
+    _doctorType = u.doctor_type || 'resident';
+    const badge = document.getElementById('doctorTypeBadge');
+    if (badge) {
+      const isResident = _doctorType === 'resident';
+      badge.textContent = isResident ? '🩻 住院醫師' : '👨‍⚕️ 主治醫師';
+      badge.style.background = isResident ? '#2471a3' : '#8e44ad';
+    }
     // 更新醫生歡迎訊息
     const welcomeEl = document.getElementById("doctorWelcomeText");
     if (welcomeEl) {
-      const u = data.user;
       const fullName = u.name || '醫師';
       const masked = fullName.length >= 2
         ? fullName[0] + '○' + fullName.slice(2)
@@ -207,6 +221,399 @@ document.getElementById("crowdLoginBtn")?.addEventListener("click", async () => 
 });
 
 
+// ── 登入（護理師）──────────────────────────────────
+document.getElementById("nurseLoginBtn")?.addEventListener("click", async () => {
+  const userId = document.getElementById("nurseUserId").value.trim() || "nurse_001";
+  const password = document.getElementById("nursePassword").value || "123";
+  try {
+    const data = await api.login(userId, password);
+    if (data.user.role !== "nurse") { showToast("⚠️ 此帳號非護理師角色"); return; }
+    state.currentUser = data.user;
+    await loadNurseMessages();
+    goTo("screen-nurse");
+  } catch {
+    showToast("⚠️ 帳號或密碼錯誤");
+  }
+});
+
+// ── 護理師端角色卡點擊 ──────────────────────────────
+document.querySelector('.role-card.nurse')?.addEventListener('click', () => {
+  goTo('screen-nurse-login');
+});
+
+// ════════════════════════════════════════════════
+// 護理師端
+// ════════════════════════════════════════════════
+let _nurseFilter = 'all';
+let _nurseMsgData = [];
+let _nurseReplyMsgId = null;
+let _nurseReplyMsgFull = null;   // 當前開啟 modal 的完整 message 物件
+let _nurseVoiceRecorder = null;
+let _nurseVoiceChunks = [];
+let _nurseVoiceRecording = false;
+
+async function loadNurseMessages() {
+  try {
+    const hospital = state.currentUser?.hospital;
+    const qs = hospital ? '?hospital=' + encodeURIComponent(hospital) : '';
+    const data = await fetch(`/api/nurse/messages${qs}`).then(r => r.json());
+    _nurseMsgData = data.messages || [];
+    renderNurseMsgs();
+    updateNurseStats();
+  } catch(e) { showToast("載入訊息失敗"); }
+}
+
+function updateNurseStats() {
+  const all    = _nurseMsgData;
+  const total  = all.filter(m => !m.replied).length;
+  const l1     = all.filter(m => m.ttas_level === 1).length;
+  const l2     = all.filter(m => m.ttas_level === 2).length;
+  const l3     = all.filter(m => m.ttas_level === 3).length;
+  const unseen = all.filter(m => !m.nurse_seen).length;
+  const setT = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
+  setT('nurseStatTotalNum', total);
+  setT('nurseStatL1Num',    l1);
+  setT('nurseStatL2Num',    l2);
+  setT('nurseStatUnseenNum',unseen);
+  setT('nurseCountL1', l1);
+  setT('nurseCountL2', l2);
+  setT('nurseCountL3', l3);
+  // 更新歡迎文字
+  const name = state.currentUser?.name || '護理師';
+  const wEl = document.getElementById('nurseWelcomeText');
+  if (wEl) wEl.textContent = `歡迎，${name}｜今日待處理 ${total} 則`;
+}
+
+const LEVEL_ICON = { 1: '🔴', 2: '🟠', 3: '🟡', 4: '⚪' };
+const LEVEL_NAME = { 1: '立即急症', 2: '緊急醫療', 3: '常規護理', 4: '生活協助' };
+const LEVEL_BG   = { 1: '#e53935', 2: '#ff6f00', 3: '#ffc107', 4: '#9e9e9e' };
+const LEVEL_COLOR= { 1: '#fff',    2: '#fff',    3: '#555',    4: '#fff' };
+
+function renderNurseMsgs() {
+  const list = document.getElementById('nurseMsgList');
+  if (!list) return;
+  let msgs = [..._nurseMsgData];
+  if (_nurseFilter === '1') msgs = msgs.filter(m => m.ttas_level === 1);
+  else if (_nurseFilter === '2') msgs = msgs.filter(m => m.ttas_level === 2);
+  else if (_nurseFilter === '3') msgs = msgs.filter(m => m.ttas_level === 3);
+  else if (_nurseFilter === '4') msgs = msgs.filter(m => m.ttas_level === 4);
+  else if (_nurseFilter === 'unseen') msgs = msgs.filter(m => !m.nurse_seen);
+
+  if (msgs.length === 0) {
+    list.innerHTML = '<div style="text-align:center;color:#aaa;margin-top:60px;font-size:.95rem">📭 目前沒有符合條件的訊息</div>';
+    return;
+  }
+
+  list.innerHTML = msgs.map(m => {
+    const lvl = m.ttas_level || 3;
+    const newDot = m.nurse_seen ? '' : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#e53935;margin-left:4px"></span>';
+    const repliedBadge = m.replied
+      ? '<span style="font-size:.7rem;background:#43a047;color:#fff;padding:2px 7px;border-radius:10px">已回覆</span>' : '';
+    const routeBadge = m.route
+      ? `<span style="font-size:.7rem;background:#7b1fa2;color:#fff;padding:2px 7px;border-radius:10px">分流：${m.route}</span>` : '';
+    return `
+    <div class="nurse-msg-card level-${lvl}" data-msg-id="${m.id}" style="cursor:pointer">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+        <span class="ttas-badge l${lvl}">${LEVEL_ICON[lvl]} Level ${lvl}｜${LEVEL_NAME[lvl]}</span>
+        ${newDot}
+        <strong style="font-size:.9rem">${escHtml(m.bed)}</strong>
+        ${repliedBadge}${routeBadge}
+      </div>
+      <div style="font-size:.92rem;color:#333;margin-bottom:6px;line-height:1.5">${escHtml(m.text)}</div>
+      <div style="font-size:.75rem;color:#aaa;margin-bottom:10px">${m.timestamp}${m.ttas_summary ? '｜' + escHtml(m.ttas_summary) : ''}</div>
+      ${m.replied
+        ? `<div style="font-size:.82rem;color:var(--green);padding:8px 12px;background:#f1f8f4;border-radius:8px;border-left:3px solid var(--green)">💬 ${escHtml(m.reply_text || '')}</div>`
+        : `<div class="eta-row" style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+             <span style="font-size:.72rem;color:#888;font-weight:600;">預計回覆：</span>
+             ${['10分鐘內','30分鐘內','1小時內','2小時內','半天內'].map(v => {
+               const label = v.replace('鐘內','').replace('內','');
+               return `<button class="eta-btn" data-bed="${m.bed}" data-eta="${v}" data-role="nurse">${label}</button>`;
+             }).join('')}
+           </div>`
+      }
+    </div>`;
+  }).join('');
+
+  // 點卡片：標記已讀 + 開啟回覆 Modal（未回覆時）
+  list.querySelectorAll('.nurse-msg-card').forEach(card => {
+    // ETA 按鈕不觸發卡片 click
+    card.querySelectorAll('.eta-btn').forEach(btn => btn.addEventListener('click', e => e.stopPropagation()));
+
+    card.addEventListener('click', async () => {
+      const id = parseInt(card.dataset.msgId);
+      const msg = _nurseMsgData.find(m => m.id === id);
+      if (!msg) return;
+
+      // 標記已讀
+      if (!msg.nurse_seen) {
+        msg.nurse_seen = true;
+        await fetch('/api/nurse/seen', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ message_id: id, nurse_id: state.currentUser?.id || 'nurse_001' })
+        });
+        updateNurseStats();
+      }
+
+      // 開啟回覆 Modal（已回覆的不開啟）
+      if (!msg.replied) {
+        _nurseReplyMsgId = id;
+        _nurseReplyMsgFull = msg;
+        const lvl = msg.ttas_level || 3;
+        document.getElementById('nurseReplyMsgPreview').textContent = `病患：「${msg.text}」`;
+        const ttasBadgeEl = document.getElementById('nurseReplyTtasBadge');
+        if (ttasBadgeEl) ttasBadgeEl.innerHTML = `<span class="ttas-badge l${lvl}">${LEVEL_ICON[lvl]} Level ${lvl}｜${LEVEL_NAME[lvl]}</span>`;
+        document.getElementById('nurseReplyText').value = '';
+        document.getElementById('nurseVoiceStatus').textContent = '';
+        document.getElementById('nurseAiSuggestionBox').style.display = 'none';
+        document.getElementById('nurseAiSuggestionText').textContent = '';
+        document.getElementById('nurseAiSuggestBtn').disabled = false;
+        document.getElementById('nurseAiSuggestBtn').textContent = '🤖 AI 建議回覆（供護理師參考）';
+        // 重置歷史面板
+        document.getElementById('nurseHistoryPanel').style.display = 'none';
+        document.getElementById('nurseHistoryChevron').textContent = '▼';
+        document.getElementById('nurseHistoryList').innerHTML = '<div style="text-align:center;color:#bbb;font-size:.78rem">載入中…</div>';
+        _chatHistory = [];
+        loadChatHistory(msg.bed, 'nurseHistoryList');
+        document.getElementById('nurseReplyModal').style.display = 'flex';
+      }
+    });
+  });
+}
+
+// 篩選按鈕（用事件委派）
+document.getElementById('screen-nurse')?.addEventListener('click', e => {
+  const btn = e.target.closest('.nurse-filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('.nurse-filter-btn').forEach(b => {
+    b.classList.remove('active');
+    b.style.background = '#fff';
+    b.style.color = '';
+    b.style.borderColor = '#ddd';
+  });
+  btn.classList.add('active');
+  btn.style.background = 'var(--pink-main)';
+  btn.style.color = '#fff';
+  btn.style.borderColor = 'var(--pink-main)';
+  _nurseFilter = btn.dataset.filter;
+  renderNurseMsgs();
+});
+
+// 重新整理按鈕
+document.getElementById('nurseRefreshBtn')?.addEventListener('click', () => loadNurseMessages());
+
+// 護理師回覆：直接回覆病患
+document.getElementById('nurseReplySubmitBtn')?.addEventListener('click', async () => {
+  const text = document.getElementById('nurseReplyText').value.trim();
+  if (!text) { showToast("請輸入回覆內容"); return; }
+  await fetch('/api/nurse/reply', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ message_id: _nurseReplyMsgId, reply_text: text, nurse_id: state.currentUser?.id || 'nurse_001' })
+  });
+  document.getElementById('nurseReplyModal').style.display = 'none';
+  showToast("回覆已送出 ✅");
+  await loadNurseMessages();
+});
+
+// 護理師語音輸入
+document.getElementById('nurseVoiceBtn')?.addEventListener('click', async () => {
+  if (_nurseVoiceRecording) {
+    _nurseVoiceRecorder?.stop();
+    _nurseVoiceRecording = false;
+    document.getElementById('nurseVoiceBtn').innerHTML = `${_MIC} 語音輸入`;
+    document.getElementById('nurseVoiceStatus').textContent = '處理中...';
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _nurseVoiceChunks = [];
+    _nurseVoiceRecorder = new MediaRecorder(stream);
+    _nurseVoiceRecorder.ondataavailable = e => _nurseVoiceChunks.push(e.data);
+    _nurseVoiceRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      // 用 Web Speech API SpeechRecognition 識別
+      const blob = new Blob(_nurseVoiceChunks, { type: 'audio/webm' });
+      document.getElementById('nurseVoiceStatus').textContent = '錄音完成（若有語音識別支援將自動轉文字）';
+      // 嘗試用 SpeechRecognition
+      if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognizer = new SR();
+        recognizer.lang = 'zh-TW';
+        recognizer.onresult = ev => {
+          const transcript = ev.results[0][0].transcript;
+          document.getElementById('nurseReplyText').value += (document.getElementById('nurseReplyText').value ? '；' : '') + transcript;
+          document.getElementById('nurseVoiceStatus').textContent = '✅ 語音轉文字完成';
+        };
+        recognizer.onerror = () => document.getElementById('nurseVoiceStatus').textContent = '語音識別失敗，請手動輸入';
+        recognizer.start();
+      }
+    };
+    _nurseVoiceRecorder.start();
+    _nurseVoiceRecording = true;
+    document.getElementById('nurseVoiceBtn').textContent = '⏹ 停止錄音';
+    document.getElementById('nurseVoiceStatus').textContent = '錄音中... 再次點擊停止';
+  } catch { showToast("無法取得麥克風權限"); }
+});
+
+// 護理師 AI 建議回覆
+document.getElementById('nurseAiSuggestBtn')?.addEventListener('click', async () => {
+  const m = _nurseReplyMsgFull;
+  if (!m || !m.text) { showToast("⚠️ 無法取得訊息內容"); return; }
+  const btn = document.getElementById('nurseAiSuggestBtn');
+  const box  = document.getElementById('nurseAiSuggestionBox');
+  const textEl = document.getElementById('nurseAiSuggestionText');
+  btn.disabled = true;
+  btn.textContent = '🤖 AI 分析中…';
+  textEl.textContent = '';
+  box.style.display = 'none';
+  try {
+    const res = await fetch('/api/nurse/ai-suggest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message_text:  m.text,
+        ttas_level:    m.ttas_level    || 3,
+        ttas_category: m.ttas_category || '常規護理',
+        ttas_summary:  m.ttas_summary  || '',
+        history:       _chatHistory.slice(-3),
+      }),
+    });
+    const data = await res.json();
+    if (data.success && data.suggestion) {
+      textEl.textContent = data.suggestion;
+      box.style.display = 'block';
+      btn.textContent = '🤖 重新生成';
+    } else {
+      showToast("⚠️ AI 無法生成建議：" + (data.error || '未知錯誤'));
+      btn.textContent = '🤖 AI 建議回覆（供護理師參考）';
+    }
+  } catch {
+    showToast("⚠️ 連線失敗，請稍後再試");
+    btn.textContent = '🤖 AI 建議回覆（供護理師參考）';
+  }
+  btn.disabled = false;
+});
+
+// 採用 AI 草稿 → 填入 textarea
+document.getElementById('nurseAiAdoptBtn')?.addEventListener('click', () => {
+  const suggestion = document.getElementById('nurseAiSuggestionText').textContent;
+  if (suggestion) {
+    document.getElementById('nurseReplyText').value = suggestion;
+    document.getElementById('nurseAiSuggestionBox').style.display = 'none';
+    showToast("草稿已填入，請審閱後送出");
+  }
+});
+
+// 略過 AI 草稿
+document.getElementById('nurseAiDismissBtn')?.addEventListener('click', () => {
+  document.getElementById('nurseAiSuggestionBox').style.display = 'none';
+});
+
+// 護理師 TTS 朗讀回覆內容
+document.getElementById('nurseVoiceTts')?.addEventListener('click', () => {
+  const text = document.getElementById('nurseReplyText').value.trim();
+  if (!text) { showToast("請先輸入回覆內容"); return; }
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = 'zh-TW';
+    utt.rate = 0.9;
+    window.speechSynthesis.speak(utt);
+  } else { showToast("此裝置不支援語音朗讀"); }
+});
+
+// ════════════════════════════════════════════════
+// 對話紀錄（聊天室模式）共用工具
+// ════════════════════════════════════════════════
+let _chatHistory = []; // 快取目前開啟病患的歷史
+
+function renderChatBubbles(messages, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!messages || messages.length === 0) {
+    el.innerHTML = '<div style="text-align:center;color:#bbb;font-size:.78rem">尚無歷史訊息</div>';
+    return;
+  }
+  el.innerHTML = messages.map(m => {
+    const patBubble = `
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px">
+        <span style="font-size:.68rem;color:#aaa">病患｜${m.timestamp || ''}</span>
+        <div style="background:#fce4ec;border-radius:0 10px 10px 10px;padding:8px 12px;font-size:.85rem;color:#333;max-width:90%;line-height:1.4">${escHtml(m.text)}</div>
+      </div>`;
+    const repBubble = m.replied && m.reply_text ? `
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+        <span style="font-size:.68rem;color:#aaa">回覆</span>
+        <div style="background:#e8f5e9;border-radius:10px 0 10px 10px;padding:8px 12px;font-size:.85rem;color:#333;max-width:90%;line-height:1.4">${escHtml(m.reply_text)}</div>
+      </div>` : '';
+    return patBubble + repBubble;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+async function loadChatHistory(bed, listId) {
+  try {
+    const data = await api.getMessageHistory(bed, 5);
+    _chatHistory = data.messages || [];
+    renderChatBubbles(_chatHistory, listId);
+  } catch { /* silent */ }
+}
+
+// ── 護理師：對話紀錄 toggle ──────────────────────
+document.getElementById('nurseHistoryToggle')?.addEventListener('click', () => {
+  const panel = document.getElementById('nurseHistoryPanel');
+  const chevron = document.getElementById('nurseHistoryChevron');
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'flex';
+  if (!open) panel.style.flexDirection = 'column';
+  chevron.textContent = open ? '▼' : '▲';
+});
+
+// ── 醫生：對話紀錄 toggle ────────────────────────
+document.getElementById('doctorHistoryToggle')?.addEventListener('click', () => {
+  const panel = document.getElementById('doctorHistoryPanel');
+  const chevron = document.getElementById('doctorHistoryChevron');
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  chevron.textContent = open ? '▼' : '▲';
+});
+
+// ── 護理師：溫暖轉譯 ────────────────────────────
+document.getElementById('nurseEmpathyRewriteBtn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('nurseEmpathyRewriteBtn');
+  const ta  = document.getElementById('nurseReplyText');
+  const rawText = ta?.value.trim();
+  if (!rawText) { showToast("⚠️ 請先輸入回覆內容再進行溫暖轉譯"); return; }
+  btn.disabled = true;
+  btn.textContent = '💝 轉譯中…';
+  try {
+    const data = await api.empathyRewrite(rawText, '', _chatHistory);
+    if (data.rewritten) {
+      ta.value = data.rewritten;
+      showToast(data.fallback ? "📝 已套用備用溫暖模板" : "💝 已轉譯為溫暖語句，可修改後送出");
+    }
+  } catch {
+    showToast("⚠️ 溫暖轉譯失敗，請重試");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💝 溫暖轉譯';
+  }
+});
+
+// 護理師端定時刷新（30 秒）
+setInterval(() => {
+  if (document.getElementById('screen-nurse')?.classList.contains('active')) loadNurseMessages();
+}, 30000);
+
+// 醫生端定時刷新（5 秒）
+setInterval(() => {
+  const doctorScreen = document.getElementById('screen-doctor');
+  if (doctorScreen?.classList.contains('active')) loadDoctorList();
+}, 5000);
+
+// ════════════════════════════════════════════════
+// 醫生端身分由帳號登入決定
+// ════════════════════════════════════════════════
+let _doctorType = 'resident'; // 預設，登入後由 user.doctor_type 覆蓋
+
 // ── 任意視界：Google Maps + Twipcam 攝影機 Marker ──────────────
 let _allCameras = [];      // 全部攝影機資料
 let _selectedCamId = null;    // 目前選中的攝影機 ID
@@ -214,6 +621,8 @@ let _gMap = null;    // Google Maps 實例
 let _infoWindow = null;    // Google Maps InfoWindow
 let _gMarkers = [];      // 所有 Marker 陣列
 let _gmapReady = false;   // Maps SDK 是否已初始化
+const _windyLoadedCells = new Set();  // 已載入的網格 key（避免重複請求）
+let _windyIdleTimer = null;           // idle 防抖計時器
 let _allCrowdVideos = [];
 let _crowdVideoMarkers = [];
 let _searchMarker = null;   // 搜尋結果圖釘
@@ -398,22 +807,63 @@ window.initGoogleMap = function () {
         }
       );
     } else {
-      console.log('Empty Map Region Clicked');
-      // 點在非 POI 的空白地圖 → 找最近的攝影機地區名
+      // 點在空白地圖 → 用 Geocoder 反查點擊位置的真實地名
       const latLng = e.latLng;
-      const nearCam = _allCameras.reduce((best, c) => {
-        const d = Math.abs(c.lat - latLng.lat()) + Math.abs(c.lon - latLng.lng());
-        return (!best || d < best.d) ? { d, region: c.region, name: c.name } : best;
-      }, null);
-      const locationName = nearCam?.region || '此地點';
       if (_infoWindow) _infoWindow.close();
-      showMissingPopup(locationName, latLng);
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ location: latLng, language: 'zh-TW' }, (results, status) => {
+        let locationName = '此地點';
+        if (status === 'OK' && results.length > 0) {
+          // 優先取行政區名稱（locality 或 administrative_area）
+          const preferred = results[0].address_components.find(c =>
+            c.types.includes('locality') || c.types.includes('administrative_area_level_2')
+          );
+          locationName = preferred?.long_name || results[0].formatted_address.split(',')[0];
+        }
+        showMissingPopup(locationName, latLng);
+      });
     }
   });
 
   if (_allCameras.length > 0) {
     addTwipcamMarkers(_allCameras);
   }
+
+  // ── 放大地圖後動態載入當前視圖的 Windy 攝影機 ──
+  _gMap.addListener('idle', () => {
+    clearTimeout(_windyIdleTimer);
+    _windyIdleTimer = setTimeout(async () => {
+      const zoom = _gMap.getZoom();
+      if (zoom < 7) return;  // 縮放不夠，不載入
+
+      const center = _gMap.getCenter();
+      const lat = center.lat();
+      const lon = center.lng();
+
+      // 依 zoom 決定搜尋半徑（zoom 越大 → 範圍越小越精確）
+      const radius = zoom >= 13 ? 5 : zoom >= 11 ? 20 : zoom >= 9 ? 50 : 150;
+
+      // 用網格 key 避免重複載入同一區域
+      const cellKey = `${(lat).toFixed(1)}_${(lon).toFixed(1)}_${radius}`;
+      if (_windyLoadedCells.has(cellKey)) return;
+      _windyLoadedCells.add(cellKey);
+
+      console.log(`[Windy動態] zoom=${zoom} radius=${radius}km 抓取中…`, lat.toFixed(2), lon.toFixed(2));
+
+      try {
+        const res = await fetch(`/api/windy/webcams?lat=${lat}&lon=${lon}&radius=${radius}&limit=50`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const newCams = (data.cameras || []).filter(c => !_allCameras.find(e => e.id === c.id));
+        console.log(`[Windy動態] 回傳 ${data.cameras?.length ?? 0} 支，新增 ${newCams.length} 支`);
+        if (newCams.length === 0) return;
+
+        _allCameras.push(...newCams);
+        _addWindyMarkers(newCams);  // 只加新的，不重畫全部
+        showToast(`🌍 載入 ${newCams.length} 個新攝影機`);
+      } catch { /* 靜默失敗 */ }
+    }, 800);  // 停止移動 0.8 秒後才載入
+  });
 };
 
 /**
@@ -499,6 +949,18 @@ function playTherapeuticChannel(chId, chName) {
 
   if (placeholder) placeholder.style.display = 'none';
 
+  // 停止所有其他播放源
+  const camStream = document.getElementById('camStream');
+  if (camStream) { camStream.style.display = 'none'; camStream.src = ''; }
+  const crowdPlayer = document.getElementById('crowdVideoPlayer');
+  if (crowdPlayer) { crowdPlayer.pause(); crowdPlayer.style.display = 'none'; crowdPlayer.src = ''; }
+  const crowdYT = document.getElementById('crowdYoutubePlayer');
+  if (crowdYT) { crowdYT.style.display = 'none'; crowdYT.src = ''; }
+  const actionsDiv = document.getElementById('crowdVideoActions');
+  if (actionsDiv) actionsDiv.style.display = 'none';
+  _currentCrowdTaskId = null;
+  _selectedCamId = null;
+
   // 移除舊 MJPEG img，換成 iframe
   const panel = document.querySelector('.video-panel');
   if (!panel) return;
@@ -509,7 +971,8 @@ function playTherapeuticChannel(chId, chName) {
 
   const iframe = document.createElement('iframe');
   iframe.id    = 'tcIframe';
-  iframe.src   = ch.embed_url;
+  const tcSep  = ch.embed_url.includes('?') ? '&' : '?';
+  iframe.src   = ch.embed_url + tcSep + 'enablejsapi=1' + (_isMuted ? '&mute=1' : '');
   iframe.allow = 'autoplay; fullscreen; encrypted-media';
   iframe.setAttribute('allowfullscreen', '');
   iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;background:#000';
@@ -551,15 +1014,27 @@ async function loadTwipcamCameras() {
   }
 
   try {
-    const data = await api.getTwipcamPresets();
-    _allCameras = data.cameras || [];
+    // 同時載入 Twipcam（交通/路況）與 Windy（公園/地標/自然景點）
+    const [twipcamData, windyData] = await Promise.allSettled([
+      api.getTwipcamPresets(),
+      api.getWindyWebcams(),
+    ]);
+
+    const twipcams = twipcamData.status === 'fulfilled' ? (twipcamData.value.cameras || []) : [];
+    const windyCams = windyData.status === 'fulfilled' ? (windyData.value.cameras || []) : [];
+
+    _allCameras = [...twipcams, ...windyCams];
+
+    if (windyCams.length > 0) {
+      showToast(`🌍 已載入 ${windyCams.length} 個 Windy 景觀攝影機`);
+    }
 
     // 若 Maps 已 ready，立即加 Marker；否則等 initGoogleMap 呼叫
     if (_gmapReady && _gMap) {
       addTwipcamMarkers(_allCameras);
     }
   } catch (err) {
-    showToast('⚠️ Twipcam 攝影機載入失敗，請確認網路');
+    showToast('⚠️ 攝影機載入失敗，請確認網路');
   }
 }
 
@@ -614,6 +1089,7 @@ function addCrowdVideoMarkers(videos) {
 
 function selectCrowdVideo(v) {
   hideMissingPopup();
+  emdrTrack('cam');
   _selectedCamId = null; // not a twipcam
   const camStream = document.getElementById('camStream');
   const crowdVideoPlayer = document.getElementById('crowdVideoPlayer');
@@ -626,27 +1102,34 @@ function selectCrowdVideo(v) {
   }
   if (placeholder) placeholder.style.display = 'none';
   if (loading) loading.style.display = 'none';
+  const oldTcIframe = document.getElementById('tcIframe');
+  if (oldTcIframe) oldTcIframe.remove();
 
   const youtubePlayer = document.getElementById('crowdYoutubePlayer');
   const isYoutube = v.video_url && v.video_url.includes('youtube-nocookie.com/embed');
   if (isYoutube) {
     if (crowdVideoPlayer) { crowdVideoPlayer.style.display = 'none'; crowdVideoPlayer.src = ''; crowdVideoPlayer.pause?.(); }
-    if (youtubePlayer) { youtubePlayer.style.display = 'block'; youtubePlayer.style.zIndex = '5'; youtubePlayer.src = v.video_url + '?autoplay=1'; }
+    if (youtubePlayer) { youtubePlayer.style.display = 'block'; youtubePlayer.style.zIndex = '5'; youtubePlayer.src = v.video_url + '?autoplay=1&enablejsapi=1' + (_isMuted ? '&mute=1' : ''); emdrWatchStart(); }
   } else {
     if (youtubePlayer) { youtubePlayer.style.display = 'none'; youtubePlayer.src = ''; }
     if (crowdVideoPlayer) {
       crowdVideoPlayer.style.display = 'block';
       crowdVideoPlayer.style.zIndex = '5';
       crowdVideoPlayer.src = v.video_url;
+      crowdVideoPlayer.muted = _isMuted;
       crowdVideoPlayer.play().catch(e => console.warn('自動撥放失敗:', e));
+      emdrWatchStart();
     }
   }
-  // 記錄任務 ID，顯示操作按鈕組
+  // 記錄任務 ID 與地點，顯示操作按鈕組
   _currentCrowdTaskId = v.id || v.task_id || null;
+  _currentCrowdLocation = v.location || v.name || v.title || '';
   const actionsDiv = document.getElementById('crowdVideoActions');
   if (actionsDiv) actionsDiv.style.display = 'flex';
   const thankBtn = document.getElementById('btnThankVolunteer');
   if (thankBtn) { thankBtn.disabled = false; thankBtn.textContent = '💝 感謝志工'; }
+  const rateBtn2 = document.getElementById('btnRateVideo');
+  if (rateBtn2) { rateBtn2.disabled = false; rateBtn2.textContent = '⭐ 評分'; }
 
   // 顯示 Badge 與控制按鈕（群眾影片）
   const badge = document.getElementById('videoLiveBadge');
@@ -670,6 +1153,38 @@ function selectCrowdVideo(v) {
 }
 
 /**
+ * 只新增 Windy 攝影機的 Marker（不清除現有 Marker）
+ */
+function _addWindyMarkers(cameras) {
+  if (!_gMap || !cameras.length) return;
+  const windyIcon = {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+        <circle cx="16" cy="16" r="14" fill="#0d1b2e" stroke="#f97316" stroke-width="2"/>
+        <text x="16" y="21" text-anchor="middle" font-size="16">🌄</text>
+      </svg>
+    `)}`,
+    scaledSize: new google.maps.Size(32, 32),
+    anchor: new google.maps.Point(16, 16),
+  };
+  cameras.forEach(cam => {
+    if (!cam.lat || !cam.lon) return;
+    const marker = new google.maps.Marker({
+      position: { lat: cam.lat, lng: cam.lon },
+      map: _gMap,
+      title: `🌄 ${cam.name || cam.id}`,
+      icon: windyIcon,
+      optimized: false,
+    });
+    marker.addListener('click', () => {
+      if (_infoWindow) _infoWindow.close();
+      selectCamera(cam);
+    });
+    _gMarkers.push(marker);
+  });
+}
+
+/**
  * 在 Google Maps 上為每台攝影機建立自訂 SVG Marker
  */
 function addTwipcamMarkers(cameras) {
@@ -679,28 +1194,31 @@ function addTwipcamMarkers(cameras) {
   _gMarkers.forEach(m => m.setMap(null));
   _gMarkers = [];
 
-  // 自訂 SVG 攝影機圖標（亮綠色，清楚可見）
-  const svgIcon = {
+  // 圖標：綠色=Twipcam交通攝影機，橘色=Windy景觀攝影機
+  const makeSvgIcon = (emoji, borderColor) => ({
     url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
       <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-        <circle cx="16" cy="16" r="14" fill="#0d1b2e" stroke="#38b27a" stroke-width="2"/>
-        <text x="16" y="21" text-anchor="middle" font-size="16">📹</text>
+        <circle cx="16" cy="16" r="14" fill="#0d1b2e" stroke="${borderColor}" stroke-width="2"/>
+        <text x="16" y="21" text-anchor="middle" font-size="16">${emoji}</text>
       </svg>
     `)}`,
     scaledSize: new google.maps.Size(32, 32),
     anchor: new google.maps.Point(16, 16),
-  };
+  });
+  const twipcamIcon = makeSvgIcon('📹', '#38b27a');  // 綠色
+  const windyIcon   = makeSvgIcon('🌄', '#f97316');  // 橘色
 
   const bounds = new google.maps.LatLngBounds();
 
   cameras.forEach(cam => {
     if (!cam.lat || !cam.lon) return;
 
+    const icon = cam.source === 'windy' ? windyIcon : twipcamIcon;
     const marker = new google.maps.Marker({
       position: { lat: cam.lat, lng: cam.lon },
       map: _gMap,
-      title: cam.name || cam.id,
-      icon: svgIcon,
+      title: cam.source === 'windy' ? `🌄 ${cam.name || cam.id}` : (cam.name || cam.id),
+      icon,
       optimized: false,
     });
 
@@ -721,6 +1239,7 @@ function addTwipcamMarkers(cameras) {
 
 function selectCamera(cam) {
   hideMissingPopup();
+  emdrTrack('cam');
   _selectedCamId = cam.id;
   const camStream = document.getElementById('camStream');
   const placeholder = document.getElementById('camPlaceholder');
@@ -741,17 +1260,56 @@ function selectCamera(cam) {
     crowdVideoPlayer.pause();
   }
 
+  // 隱藏群眾影片的感謝/評分按鈕
+  const actionsDiv = document.getElementById('crowdVideoActions');
+  if (actionsDiv) actionsDiv.style.display = 'none';
+  _currentCrowdTaskId = null;
+  const oldTc = document.getElementById('tcIframe');
+  if (oldTc) oldTc.remove();
+
   // 恢復即時影像 Badge 樣式
   const badge = document.getElementById('videoLiveBadge');
   const dot = document.getElementById('videoLiveDot');
   const txt = document.getElementById('videoLiveText');
   if (badge && dot && txt) {
-    badge.style.background = 'rgba(56,178,122,0.9)';
+    badge.style.background = cam.source === 'windy' ? 'rgba(249,115,22,0.9)' : 'rgba(56,178,122,0.9)';
     badge.style.color = 'white';
     dot.style.background = '#ff5555';
-    txt.textContent = '即時影像';
+    txt.textContent = cam.source === 'windy' ? '🌄 Windy 景觀' : '即時影像';
   }
 
+  const panel = document.querySelector('.video-panel');
+  const controls = document.getElementById('videoControls');
+  const btnClose = document.getElementById('btnCloseStream');
+  const title = document.getElementById('videoPanelTitle');
+
+  // ── Windy 攝影機：用 iframe 播放 ──────────────────────────────
+  if (cam.source === 'windy' && cam.embed_url) {
+    if (loading) loading.style.display = 'none';
+    if (camStream) camStream.style.display = 'none';
+
+    const oldIframe = document.getElementById('tcIframe');
+    if (oldIframe) oldIframe.remove();
+
+    const iframe = document.createElement('iframe');
+    iframe.id    = 'tcIframe';
+    iframe.src   = cam.embed_url;
+    iframe.allow = 'autoplay; fullscreen';
+    iframe.setAttribute('allowfullscreen', '');
+    iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;background:#000';
+    iframe.onload = () => emdrWatchStart();
+    if (panel) panel.insertBefore(iframe, panel.firstChild);
+
+    if (badge) badge.style.display = 'flex';
+    if (controls) controls.style.display = '';
+    if (btnClose) btnClose.style.display = '';
+    if (title) title.textContent = `🌄 ${cam.name || cam.id}`;
+    stopGlobeAnim();
+    showToast(`🌄 Windy 景觀：${cam.name || cam.id}`);
+    return;
+  }
+
+  // ── Twipcam 攝影機：MJPEG img ──────────────────────────────
   // 建立新的 img 元素（先 clone 移除舊事件）
   const newImg = camStream ? camStream.cloneNode(false) : document.createElement('img');
   if (camStream && camStream.parentNode) {
@@ -762,15 +1320,11 @@ function selectCamera(cam) {
     if (loading) loading.style.display = 'none';
     if (placeholder) placeholder.style.display = 'none';
     newImg.style.display = 'block';
-    // 顯示 badge、控制按鈕、關閉按鈕，更新面板標題
-    const badge = document.getElementById('videoLiveBadge');
-    const controls = document.getElementById('videoControls');
-    const btnClose = document.getElementById('btnCloseStream');
-    const title = document.getElementById('videoPanelTitle');
     if (badge) badge.style.display = '';
     if (controls) controls.style.display = '';
     if (btnClose) btnClose.style.display = '';
     if (title) title.textContent = `📺 ${cam.name || cam.id}`;
+    emdrWatchStart();
     stopGlobeAnim();
     showToast(`📺 正在播放：${cam.name || cam.id}`);
   };
@@ -780,14 +1334,10 @@ function selectCamera(cam) {
     // 顯示連線失敗覆層，等使用者手動關閉
     const errOverlay = document.getElementById('camErrorOverlay');
     if (errOverlay) errOverlay.style.display = 'flex';
-    const badge2 = document.getElementById('videoLiveBadge');
-    const controls2 = document.getElementById('videoControls');
-    const btnClose2 = document.getElementById('btnCloseStream');
-    const title2 = document.getElementById('videoPanelTitle');
-    if (badge2) badge2.style.display = 'none';
-    if (controls2) controls2.style.display = 'none';
-    if (btnClose2) btnClose2.style.display = 'none';   // 只用覆層內的大按鈕
-    if (title2) title2.textContent = `⚠️ ${cam.name || cam.id}`;
+    if (badge) badge.style.display = 'none';
+    if (controls) controls.style.display = 'none';
+    if (btnClose) btnClose.style.display = 'none';   // 只用覆層內的大按鈕
+    if (title) title.textContent = `⚠️ ${cam.name || cam.id}`;
   };
   newImg.id = 'camStream';
   newImg.alt = cam.name || cam.id;
@@ -818,7 +1368,8 @@ function hideMissingPopup() {
 // AI 導覽與靜音增強實作
 document.getElementById("btnAI")?.addEventListener("click", async () => {
   const cam = _allCameras.find(c => c.id === _selectedCamId);
-  const camName = cam ? cam.name : '此地點';
+  // 優先取攝影機名稱；若是群眾影片則取任務地點
+  const camName = cam?.name || _currentCrowdLocation || '';
   const videoPanel = document.querySelector('.video-panel');
 
   // 建立或取得泡泡
@@ -846,7 +1397,7 @@ document.getElementById("btnAI")?.addEventListener("click", async () => {
   // 嘗試擷取影片畫面（群眾上傳的 <video> 元素）
   let imageBase64 = '';
   const videoEl = document.getElementById('crowdVideoPlayer') || document.querySelector('.video-panel video');
-  if (videoEl && !videoEl.paused && videoEl.readyState >= 2) {
+  if (videoEl && videoEl.readyState >= 2) {
     try {
       const canvas = document.createElement('canvas');
       canvas.width  = videoEl.videoWidth  || 320;
@@ -887,6 +1438,17 @@ document.getElementById("btnAI")?.addEventListener("click", async () => {
 });
 
 let _isMuted = false;
+
+function applyMuteState() {
+  const player = document.getElementById('crowdVideoPlayer');
+  if (player) player.muted = _isMuted;
+  const muteCmd = JSON.stringify({ event: 'command', func: _isMuted ? 'mute' : 'unMute', args: [] });
+  const yt = document.getElementById('crowdYoutubePlayer');
+  if (yt && yt.contentWindow) yt.contentWindow.postMessage(muteCmd, '*');
+  const tc = document.getElementById('tcIframe');
+  if (tc && tc.contentWindow) tc.contentWindow.postMessage(muteCmd, '*');
+}
+
 document.getElementById("btnMute")?.addEventListener("click", (e) => {
   _isMuted = !_isMuted;
   const btn = e.currentTarget;
@@ -899,6 +1461,7 @@ document.getElementById("btnMute")?.addEventListener("click", (e) => {
     btn.style.background = "rgba(255,255,255,0.15)";
     showToast("🔊 已解除靜音");
   }
+  applyMuteState();
 });
 
 // ── 景點請求 Modal ───────────────────────────────
@@ -946,26 +1509,30 @@ document.getElementById("btnSubmitRequest")?.addEventListener("click", async () 
 
 
 // ── 醫聲相伴：病患端 ─────────────────────────────
-let _allDoctors = [];
 
 async function loadPatientMessages() {
   const patientId = state.currentUser?.id || "patient_503B";
   showSkeleton("historyList", 4);
   try {
-    const [msgData, docData] = await Promise.all([
+    const [msgData, careData] = await Promise.all([
       api.getPatientMessages(patientId),
-      api.getDoctors().catch(() => ({ doctors: [] }))
+      fetch(`/api/patient/care-team?patient_id=${patientId}`).then(r => r.json()).catch(() => ({}))
     ]);
     renderHistoryList(msgData.messages);
-
-    _allDoctors = docData.doctors || [];
-    const docSelect = document.getElementById("doctorSelect");
-    if (docSelect) {
-      docSelect.innerHTML = _allDoctors.map(d => `<option value="${d.id}">${d.dept} - ${d.name}</option>`).join("");
-    }
+    renderCareTeamBar(careData.care_team || {});
   } catch {
     showToast("⚠️ 訊息載入失敗");
   }
+}
+
+function renderCareTeamBar(careTeam) {
+  const at = careTeam.attending;
+  const res = careTeam.resident;
+  const nur = careTeam.nurse;
+  const el = (id, text) => { const e = document.getElementById(id); if (e) e.textContent = text; };
+  el('careTeamAttending', at  ? `👨‍⚕️ 主治：${at.name}（${at.dept}）` : '');
+  el('careTeamResident',  res ? `🩻 住院：${res.name}（${res.dept}）` : '');
+  el('careTeamNurse',     nur ? `🩺 護理：${nur.name}` : '');
 }
 
 function renderHistoryList(messages) {
@@ -977,16 +1544,26 @@ function renderHistoryList(messages) {
   // 儲存到 state 供 modal 使用
   state._patientMessages = messages;
   const emotionEmoji = { '開心': '😊', '難過': '😟', '焦慮': '😰', '有問題': '🤔' };
+  const LVLCOLOR = { 1:'#e53935', 2:'#ff6f00', 3:'#ffc107', 4:'#9e9e9e' };
+  const LVLICON  = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'⚪' };
+  const LVLNAME  = { 1:'立即急症', 2:'緊急', 3:'常規護理', 4:'生活協助' };
+  const LVLROUTE = { 1:'→ 主治醫師', 2:'→ 住院醫師', 3:'→ 護理師', 4:'→ 護理師' };
   list.innerHTML = messages.map((m, idx) => {
     const emo = emotionEmoji[m.emotion] || m.emotion || '';
     const preview = m.text ? (m.text.slice(0, 22) + (m.text.length > 22 ? '...' : '')) : `[${m.emotion}]`;
+    const lvl = m.ttas_level || 0;
+    const tColor = lvl === 3 ? '#555' : '#fff';
+    const ttasBadge = lvl
+      ? `<span style="background:${LVLCOLOR[lvl]};color:${tColor};padding:1px 6px;border-radius:7px;font-size:.68rem;font-weight:700;white-space:nowrap">${LVLICON[lvl]} L${lvl} ${LVLNAME[lvl]}</span><span style="font-size:.68rem;color:#888">${LVLROUTE[lvl]}</span>`
+      : '';
     return `
     <div class="history-item ${!m.replied ? 'unread' : ''}" onclick="openMsgModal(${idx})" style="cursor:pointer">
       <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:center;gap:6px">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <span class="history-emotion-tag">${emo}</span>
           <div class="history-text">${escHtml(preview)}</div>
         </div>
+        ${ttasBadge ? `<div style="display:flex;align-items:center;gap:4px;margin-top:3px">${ttasBadge}</div>` : ''}
         <div style="font-size:0.68rem;margin-top:2px;${m.replied ? 'color:#38b27a' : 'color:#e67e22'}">
           ${m.replied ? '✅ 已回覆' : '⏳ 待回覆'}
         </div>
@@ -1006,6 +1583,26 @@ function openMsgModal(idx) {
   document.getElementById('mdm-emotion').textContent = `${emo} ${m.emotion || ''}`;
   document.getElementById('mdm-time').textContent = m.timestamp || '';
   document.getElementById('mdm-text').textContent = m.text || `（${m.emotion}）`;
+  // TTAS 分級資訊
+  const ttasSection = document.getElementById('mdm-ttas-section');
+  const ttasBadgeEl = document.getElementById('mdm-ttas-badge');
+  if (ttasSection && ttasBadgeEl && m.ttas_level) {
+    const LVLCOLOR = { 1:'#e53935', 2:'#ff6f00', 3:'#ffc107', 4:'#9e9e9e' };
+    const LVLICON  = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'⚪' };
+    const LVLNAME  = { 1:'立即急症', 2:'緊急醫療', 3:'常規護理', 4:'生活協助' };
+    const LVLROUTE = { 1:'主治醫師', 2:'住院醫師', 3:'護理師', 4:'護理師' };
+    const lvl = m.ttas_level;
+    const tColor = lvl === 3 ? '#555' : '#fff';
+    ttasBadgeEl.innerHTML = `
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span style="background:${LVLCOLOR[lvl]};color:${tColor};padding:3px 10px;border-radius:10px;font-weight:800;font-size:.8rem">${LVLICON[lvl]} Level ${lvl}｜${LVLNAME[lvl]}</span>
+        <span style="font-size:.8rem;color:#555">→ 分流至 ${LVLROUTE[lvl]}</span>
+      </div>
+      ${m.ttas_summary ? `<div style="margin-top:4px;font-size:.75rem;color:#888">摘要：${escHtml(m.ttas_summary)}</div>` : ''}`;
+    ttasSection.style.display = 'block';
+  } else if (ttasSection) {
+    ttasSection.style.display = 'none';
+  }
   const replySection = document.getElementById('mdm-reply-section');
   const replyText = document.getElementById('mdm-reply-text');
   if (m.replied && m.reply_text) {
@@ -1064,81 +1661,122 @@ document.querySelectorAll(".emotion-btn").forEach((btn) => {
   });
 });
 
-// ══ Hugging Face Transformers.js — 情緒分析（AI 輕量化）══════════════
-// 模型：Xenova/distilbert-base-multilingual-cased-sentiments-student
-// 大小：~22MB (INT8 量化)，在瀏覽器內直接推論，不需伺服器
-// 標籤：positive / neutral / negative
+// ── TTAS 緊急警告大視窗 ────────────────────────────
+function showEmergencyAlert(level, summary) {
+  // 移除舊的
+  document.getElementById('ttasEmergencyOverlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'ttasEmergencyOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(180,0,0,.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;animation:fadeIn .3s';
+  const icon = level === 1 ? '🚨' : '⚠️';
+  const title = level === 1 ? '立即急症！請馬上按護理鈴！' : '緊急狀況！請按護理鈴！';
+  overlay.innerHTML = `
+    <div style="font-size:4rem;margin-bottom:12px">${icon}</div>
+    <div style="color:#fff;font-size:1.6rem;font-weight:900;text-align:center;margin-bottom:12px">${title}</div>
+    <div style="color:#ffd;font-size:1rem;text-align:center;margin-bottom:24px;max-width:300px">${summary}</div>
+    <div style="color:#fff;font-size:1.2rem;font-weight:700;text-align:center;margin-bottom:8px">📋 AI 分類僅供參考</div>
+    <div style="color:#ffd;font-size:.85rem;text-align:center;margin-bottom:24px">如有緊急狀況，護理鈴才是最即時的求助方式</div>
+    <button id="ttasEmergencyClose" style="background:#fff;color:#c00;font-weight:900;font-size:1.1rem;padding:14px 32px;border:none;border-radius:50px;cursor:pointer">
+      我已知曉，繼續傳送訊息
+    </button>`;
+  document.body.appendChild(overlay);
+  document.getElementById('ttasEmergencyClose')?.addEventListener('click', () => overlay.remove());
+}
 
-let _sentimentPipe   = null;
-let _sentimentLoading = false;
+// ── TTAS 追問對話框 ─────────────────────────────────
+function showTriageFollowUp(followUpQuestion) {
+  document.getElementById('ttasFollowUpModal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'ttasFollowUpModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:5000;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:20px;width:min(92vw,420px);overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.25)">
+      <div style="background:linear-gradient(135deg,#38b27a,#2d8f61);padding:18px 20px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:1.8rem;line-height:1">🤔</span>
+        <div>
+          <div style="font-weight:900;font-size:1.05rem;color:#fff">護理 AI 需要再確認一下</div>
+          <div style="font-size:.72rem;color:rgba(255,255,255,.75);margin-top:2px">補充說明有助 AI 更精準分流</div>
+        </div>
+      </div>
+      <div style="padding:18px 20px 0">
+        <div style="background:#f0fdf4;border:1.5px solid rgba(56,178,122,.3);border-radius:12px;padding:14px 16px;font-size:1rem;color:#2d5a3d;line-height:1.6;margin-bottom:14px">
+          ${followUpQuestion}
+        </div>
+        <textarea id="ttasFollowUpAnswer" placeholder="請在這裡補充說明…"
+          style="width:100%;min-height:80px;border:1.5px solid #c8e6d0;border-radius:12px;
+                 padding:12px 14px;font-size:.98rem;resize:vertical;box-sizing:border-box;
+                 font-family:inherit;line-height:1.6;outline:none;background:#fafff9;
+                 color:#333;margin-bottom:8px;display:block"></textarea>
+        <button id="ttasFollowUpVoice"
+          style="width:100%;padding:11px;border:2px dashed #38b27a;border-radius:12px;
+                 background:#f0fdf4;color:#2d8f61;font-size:.95rem;font-weight:700;
+                 cursor:pointer;font-family:inherit;display:flex;align-items:center;
+                 justify-content:center;gap:8px;margin-bottom:6px;box-sizing:border-box">
+          ${_MIC} 點此語音輸入
+        </button>
+        <div id="ttasFollowUpVoiceStatus" style="font-size:.75rem;color:#38b27a;min-height:18px;text-align:center;margin-bottom:10px"></div>
+        <div style="display:flex;gap:10px;margin-bottom:16px">
+          <button id="ttasFollowUpSkip"
+            style="flex:1;padding:12px;border:1.5px solid #e0e0e0;border-radius:12px;
+                   background:#f8f8f8;cursor:pointer;font-size:.92rem;color:#666;
+                   font-family:inherit;font-weight:600">跳過，直接送出</button>
+          <button id="ttasFollowUpSend"
+            style="flex:2;padding:12px;background:linear-gradient(135deg,#38b27a,#2d8f61);
+                   color:#fff;border:none;border-radius:12px;font-weight:800;cursor:pointer;
+                   font-size:.95rem;font-family:inherit;box-shadow:0 3px 10px rgba(56,178,122,.35)">
+            ✅ 補充後送出</button>
+        </div>
+        <div style="font-size:.7rem;color:#ccc;text-align:center;padding-bottom:16px">AI 分類僅供參考，非臨床診斷</div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
 
-async function _ensureSentimentModel(onStatus) {
-  if (_sentimentPipe) return _sentimentPipe;
-  if (_sentimentLoading) {
-    // 等待已在進行的載入
-    while (_sentimentLoading) await new Promise(r => setTimeout(r, 150));
-    return _sentimentPipe;
-  }
-  _sentimentLoading = true;
+  // 語音輸入
+  let _voiceActive = false;
+  document.getElementById('ttasFollowUpVoice')?.addEventListener('click', () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const status = document.getElementById('ttasFollowUpVoiceStatus');
+    const voiceBtn = document.getElementById('ttasFollowUpVoice');
+    if (!SR) { status.textContent = '此裝置不支援語音輸入'; return; }
+    if (_voiceActive) return;
+    _voiceActive = true;
+    voiceBtn.textContent = '⏹';
+    voiceBtn.style.background = '#e53935';
+    status.textContent = '🎙 錄音中…請說話';
+    const rec = new SR();
+    rec.lang = 'zh-TW';
+    rec.interimResults = false;
+    rec.start();
+    rec.onresult = (e) => {
+      const t = e.results[0][0].transcript;
+      const ta = document.getElementById('ttasFollowUpAnswer');
+      if (ta) ta.value += (ta.value ? '；' : '') + t;
+      status.textContent = '✅ 語音轉文字完成';
+    };
+    rec.onerror = () => { status.textContent = '語音識別失敗，請手動輸入'; };
+    rec.onend = () => {
+      _voiceActive = false;
+      voiceBtn.innerHTML = `${_MIC} 點此語音輸入`;
+      voiceBtn.style.background = '#f0fdf4';
+    };
+  });
 
-  // 等 Transformers.js 模組就緒（ES module 非同步）
-  if (!window._HFPipeline) {
-    onStatus?.('🤖 Hugging Face 模型載入中，首次約需 10–20 秒…');
-    await new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('timeout')), 30000);
-      window.addEventListener('hf-ready', () => { clearTimeout(t); resolve(); }, { once: true });
-      if (window._HFPipeline) { clearTimeout(t); resolve(); }
+  return new Promise(resolve => {
+    document.getElementById('ttasFollowUpSend')?.addEventListener('click', () => {
+      const answer = document.getElementById('ttasFollowUpAnswer')?.value.trim() || '';
+      modal.remove();
+      resolve(answer);
     });
-  }
-
-  onStatus?.('🤖 AI 情緒模型初始化中…');
-  _sentimentPipe = await window._HFPipeline(
-    'text-classification',
-    'Xenova/distilbert-base-multilingual-cased-sentiments-student',
-    { quantized: true }
-  );
-  _sentimentLoading = false;
-  onStatus?.('✅ AI 模型就緒');
-  return _sentimentPipe;
+    document.getElementById('ttasFollowUpSkip')?.addEventListener('click', () => {
+      modal.remove();
+      resolve('');
+    });
+  });
 }
 
-// label 轉中文
-const _SENT_MAP = {
-  positive: { zh: '情緒正向', color: '#2d8f61', icon: '😊' },
-  neutral:  { zh: '情緒平穩', color: '#888',    icon: '😐' },
-  negative: { zh: '情緒低落', color: '#e74c3c', icon: '😟' },
-};
-
-async function runSentimentAnalysis(text) {
-  const barEl  = document.getElementById('aiSentimentBar');
-  const textEl = document.getElementById('aiSentimentText');
-  if (!text || text.length < 3) return null;
-
-  try {
-    if (barEl) barEl.style.display = 'block';
-    const pipe = await _ensureSentimentModel(msg => { if (textEl) textEl.textContent = msg; });
-    if (textEl) textEl.textContent = '🤖 分析情緒中…';
-
-    const [res] = await pipe(text, { topk: 1 });
-    const label = (res.label || '').toLowerCase(); // positive | neutral | negative
-    const score = Math.round((res.score || 0) * 100);
-    const meta  = _SENT_MAP[label] || _SENT_MAP.neutral;
-
-    if (textEl) {
-      textEl.innerHTML = `${meta.icon} AI 偵測：<strong style="color:${meta.color}">${meta.zh}</strong>（信心 ${score}%）`;
-    }
-    setTimeout(() => { if (barEl) barEl.style.display = 'none'; }, 3000);
-    return { label, score: res.score };
-  } catch (e) {
-    console.warn('Sentiment analysis error:', e);
-    if (barEl) barEl.style.display = 'none';
-    return null;
-  }
-}
-
-// ── 送出病患訊息（含 AI 情緒分析）────────────────────
+// ── 送出病患訊息（含 TTAS 分類 + AI 情緒分析）────────
 document.getElementById("btnSendMsg")?.addEventListener("click", async () => {
-  const text = document.getElementById("patientMsg").value.trim();
+  let text = document.getElementById("patientMsg").value.trim();
   if (!text && !state.selectedEmotion) {
     showToast("⚠️ 請選擇心情或輸入訊息");
     return;
@@ -1146,23 +1784,98 @@ document.getElementById("btnSendMsg")?.addEventListener("click", async () => {
   const emotion   = state.selectedEmotion || "有問題";
   const patientId = state.currentUser?.id  || "patient_503B";
   const bed       = state.currentUser?.bed || "503-B";
-  const doctorSelect = document.getElementById("doctorSelect");
-  const doctorId  = doctorSelect ? doctorSelect.value : null;
+  // doctor_id 不再由病患選擇，後端依 care_team 路由
+  const doctorId = null;
 
-  // 先送出訊息（不等 AI），同時非同步跑情緒分析
+  // 若有文字，先做 TTAS 分類
+  let ttasResult = { level: 3, category: "常規護理", summary: text.slice(0, 30), follow_up: "" };
+  let ttasFallback = false;
+
+  if (text) {
+    try {
+      showToast("🔍 AI 正在分析訊息緊急程度...");
+      const triageRes = await fetch('/api/triage', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ text, patient_name: state.currentUser?.name || '病患' })
+      }).then(r => r.json());
+
+      if (triageRes.success) {
+        ttasResult = triageRes.result;
+      } else {
+        ttasFallback = true;
+        ttasResult = triageRes.result; // 保守預設
+      }
+    } catch {
+      ttasFallback = true;
+    }
+
+    // Level 1 或 2：立即跳大視窗警告，不管 follow_up
+    if (ttasResult.level <= 2) {
+      showEmergencyAlert(ttasResult.level, ttasResult.summary);
+      // 仍然繼續送出訊息（病患知情後可繼續）
+    } else if (ttasResult.follow_up && !ttasFallback) {
+      // Level 3/4 且 AI 需要追問：最多一次
+      const extraAnswer = await showTriageFollowUp(ttasResult.follow_up);
+      if (extraAnswer) {
+        text = text + '（補充：' + extraAnswer + '）';
+        // 第二輪分類
+        try {
+          const triageRes2 = await fetch('/api/triage', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ text })
+          }).then(r => r.json());
+          if (triageRes2.success) ttasResult = triageRes2.result;
+        } catch {}
+        // 第二輪若升為 Level 1/2 也要警告
+        if (ttasResult.level <= 2) showEmergencyAlert(ttasResult.level, ttasResult.summary);
+      }
+    }
+  }
+
+  // 送出訊息
   try {
-    // 非同步執行情緒分析，不阻塞訊息送出
-    const sentimentPromise = text ? runSentimentAnalysis(text) : Promise.resolve(null);
-
-    const sentiment = await sentimentPromise;
-    await api.sendPatientMessage(patientId, bed, emotion, text, doctorId, sentiment);
+    await api.sendPatientMessage(
+      patientId, bed, emotion, text, doctorId, null,
+      ttasResult.level, ttasResult.category, ttasResult.summary
+    );
 
     document.getElementById("patientMsg").value = "";
     state.selectedEmotion = null;
     document.querySelectorAll(".emotion-btn").forEach(b => b.classList.remove("selected"));
     const bar = document.getElementById("emotionSelectedBar");
     if (bar) bar.style.display = 'none';
-    showToast("✅ 訊息已傳送給醫生");
+
+    // 顯示送出結果卡
+    const resultCard = document.getElementById('ttasSendResult');
+    const resultBody = document.getElementById('ttasSendResultBody');
+    if (resultCard && resultBody) {
+      if (ttasFallback) {
+        resultCard.style.borderColor = '#aaa';
+        resultCard.style.background = '#f8f8f8';
+        resultBody.innerHTML = '<span style="color:#888">AI 暫時無法分析，訊息已保守處理</span>';
+      } else {
+        const lvl = ttasResult.level;
+        const LVLCOLOR = { 1:'#e53935', 2:'#ff6f00', 3:'#ffc107', 4:'#9e9e9e' };
+        const LVLICON  = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'⚪' };
+        const LVLNAME  = { 1:'立即急症', 2:'緊急醫療', 3:'常規護理', 4:'生活協助' };
+        const LVLROUTE = { 1:'📣 已分流至主治醫師', 2:'📣 已分流至住院醫師', 3:'📣 已分流至護理師', 4:'📣 已分流至護理師' };
+        const tColor   = lvl === 3 ? '#555' : '#fff';
+        resultCard.style.borderColor = LVLCOLOR[lvl] || '#38b27a';
+        resultCard.style.background  = lvl <= 2 ? '#fff5f5' : lvl === 3 ? '#f1f8f4' : '#f8f8f8';
+        resultBody.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+            <span style="background:${LVLCOLOR[lvl]};color:${tColor};padding:3px 10px;border-radius:10px;font-weight:800;font-size:.8rem">${LVLICON[lvl]} Level ${lvl}｜${LVLNAME[lvl]}</span>
+            <span style="font-size:.82rem;font-weight:700;color:#333">${LVLROUTE[lvl]}</span>
+          </div>
+          ${ttasResult.summary ? `<div style="font-size:.78rem;color:#666;background:#f5f5f5;border-radius:8px;padding:6px 10px">AI 摘要：${escHtml(ttasResult.summary)}</div>` : ''}`;
+      }
+      resultCard.style.display = 'block';
+      // 5 秒後自動淡出
+      setTimeout(() => { if (resultCard) resultCard.style.display = 'none'; }, 6000);
+    }
+    // L1/L2 是緊急狀況，不計入 EMDR 焦慮偵測
+    const sentLevel = ttasResult?.level || 3;
+    if (sentLevel >= 3) emdrTrack('msg');
     await loadPatientMessages();
   } catch {
     showToast("⚠️ 傳送失敗");
@@ -1206,33 +1919,7 @@ document.getElementById("btnVoiceInput")?.addEventListener("click", () => {
   };
 });
 
-document.getElementById("btnRecommendDept")?.addEventListener("click", async () => {
-  const text = document.getElementById("patientMsg").value.trim();
-  if (!text) {
-    showToast("⚠️ 請先在輸入框填寫您的狀況，AI 才能提供建議喔！");
-    return;
-  }
-  const btn = document.getElementById("btnRecommendDept");
-  const originalText = btn.innerHTML;
-  btn.innerHTML = "🤖 判斷中...";
-  btn.disabled = true;
-
-  try {
-    const res = await api.recommendDept(text);
-    const doctorSelect = document.getElementById("doctorSelect");
-    if (doctorSelect && res.doctor_id) {
-      doctorSelect.value = res.doctor_id;
-      showToast(`💡 AI 判斷您剛才描述的症狀適合諮詢：${res.department}`);
-    } else {
-      showToast("💡 無法判斷，請手動選擇科別");
-    }
-  } catch (e) {
-    showToast("⚠️ AI 判斷失敗");
-  } finally {
-    btn.innerHTML = originalText;
-    btn.disabled = false;
-  }
-});
+// btnRecommendDept 已移除（照護團隊由入院時護理師設定，無需病患選擇）
 
 // ── 醫聲相伴：醫生端 ─────────────────────────────
 async function loadDoctorList() {
@@ -1246,7 +1933,7 @@ async function loadDoctorList() {
   if (pf) pf.value = '';
   try {
     const [data] = await Promise.all([
-      api.getPendingPatients(),
+      api.getPendingPatients(state.currentUser?.hospital || "", _doctorType, state.currentUser?.id || ""),
       loadAllRxReviewStat(),
     ]);
     _lastDoctorData = data;
@@ -1256,22 +1943,25 @@ async function loadDoctorList() {
   }
 }
 
-function priorityLabel(color) {
-  if (color === 'red')    return '🔴 緊急';
-  if (color === 'yellow') return '🟡 注意';
-  return '⚪ 一般';
+const _TTAS_BADGE = {
+  1: { label: '🔴 L1 立即急症', bg: '#e53935', color: '#fff', border: '#e53935' },
+  2: { label: '🟠 L2 緊急醫療', bg: '#ff6f00', color: '#fff', border: '#ff6f00' },
+  3: { label: '🟡 L3 常規護理', bg: '#ffc107', color: '#555', border: '#ffc107' },
+  4: { label: '⚪ L4 生活協助', bg: '#f5f5f5', color: '#777', border: '#bbb'    },
+};
+
+function ttasBadgeHtml(lvl) {
+  const b = _TTAS_BADGE[lvl] || _TTAS_BADGE[3];
+  return `<span style="background:${b.bg};color:${b.color};border:1px solid ${b.border};padding:3px 9px;border-radius:10px;font-size:.75rem;font-weight:800;white-space:nowrap">${b.label}</span>`;
 }
 
-function updatePriorityCounts(pending) {
-  const red    = pending.filter(p => p.star_color === 'red').length;
-  const yellow = pending.filter(p => p.star_color === 'yellow').length;
-  const none   = pending.filter(p => !p.star_color || p.star_color === 'none').length;
-  const elR = document.getElementById('countRed');
-  const elY = document.getElementById('countYellow');
-  const elN = document.getElementById('countNone');
-  if (elR) elR.textContent = red;
-  if (elY) elY.textContent = yellow;
-  if (elN) elN.textContent = none;
+function updateTtasCounts(pending) {
+  const count = [0, 0, 0, 0, 0]; // index 1-4
+  pending.forEach(p => { const l = p.latest_ttas_level || 3; if (l >= 1 && l <= 4) count[l]++; });
+  ['L1','L2','L3','L4'].forEach((k, i) => {
+    const el = document.getElementById('count' + k);
+    if (el) el.textContent = count[i + 1];
+  });
 }
 
 function renderPendingList(pending, done, stats) {
@@ -1290,49 +1980,57 @@ function renderPendingList(pending, done, stats) {
   const unreadEl = document.getElementById("statUnread");
   if (unreadEl) unreadEl.textContent = totalUnread > 0 ? totalUnread : '0';
 
-  // 排序：依時間先後（最早留言 = 等最久 → 排最上方）
+  // 排序：TTAS 等級優先（L1 最上），同等級再依時間（最早 = 等最久）
   const sorted = [...pending].sort((a, b) => {
+    const la = a.latest_ttas_level || 3;
+    const lb = b.latest_ttas_level || 3;
+    if (la !== lb) return la - lb;
     const ta = a.timestamp ? new Date(a.timestamp.replace(/\//g, '-')) : 0;
     const tb = b.timestamp ? new Date(b.timestamp.replace(/\//g, '-')) : 0;
     return ta - tb;
   });
 
-  // 更新優先等級計數
-  updatePriorityCounts(pending);
+  // 更新 TTAS 計數
+  updateTtasCounts(pending);
+
+  const LEVEL_ROW_CLASS = { 1: 'priority-red', 2: 'priority-yellow', 3: '', 4: '' };
+  const ETA_OPTIONS = [
+    { label: '5分', value: '5分鐘內' },
+    { label: '10分', value: '10分鐘內' },
+    { label: '20分', value: '20分鐘內' },
+    { label: '半小時', value: '30分鐘內' },
+  ];
 
   pendingEl.innerHTML = sorted.map((p) => {
-    const color = p.star_color || 'none';
-    const priorityClass = (color === 'red' || color === 'yellow') ? `priority-${color}` : '';
+    const lvl = p.latest_ttas_level || 3;
+    const rowClass = LEVEL_ROW_CLASS[lvl] || '';
     const unreadBadge = p.unread > 0 ? `<span class="unread-badge">${p.unread}</span>` : '';
-
-    // AI 情緒徽章（後端傳回 ai_sentiment 欄位）
-    const sent = p.ai_sentiment;
-    const sentScore = p.ai_sentiment_score != null ? Math.round(p.ai_sentiment_score * 100) : null;
-    let aiBadge = '';
-    if (sent === 'negative') {
-      aiBadge = `<span class="ai-sent-badge ai-sent-neg" title="AI 偵測情緒（信心 ${sentScore}%）">
-                   🤖 情緒低落${sentScore ? ` ${sentScore}%` : ''}</span>`;
-    } else if (sent === 'positive') {
-      aiBadge = `<span class="ai-sent-badge ai-sent-pos" title="AI 偵測情緒（信心 ${sentScore}%）">
-                   🤖 情緒正向</span>`;
-    }
+    const currentEta = _replyEtaMap[p.bed] || '';
+    const etaBtns = ETA_OPTIONS.map(opt => {
+      const active = currentEta === opt.value;
+      return `<button class="eta-btn${active ? ' eta-active' : ''}" data-bed="${p.bed}" data-eta="${opt.value}" data-role="doctor">${opt.label}</button>`;
+    }).join('');
 
     return `
-    <div class="todo-row ${priorityClass}" data-bed="${p.bed}">
+    <div class="todo-row ${rowClass}" data-bed="${p.bed}">
       <div style="flex:1;min-width:0;">
         <div class="todo-room">
           ${p.bed}號病房 - ${p.patient_name}
           <span class="todo-hospital">${p.hospital || '未知醫院'}</span>
           ${unreadBadge}
-          ${aiBadge}
         </div>
-        <div class="todo-emotion" style="display:flex; justify-content:space-between; margin-top:4px;">
-           <span>${p.latest_emotion}${p.unread > 0 ? ` · 未讀 ${p.unread} 則` : ''}</span>
-           <span class="todo-time">${p.timestamp || ''}</span>
+        <div class="todo-emotion" style="display:flex; justify-content:space-between; margin-top:4px;gap:8px;">
+           <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#555;font-size:.85rem">${p.latest_message ? escHtml(p.latest_message) : p.latest_emotion}</span>
+           <span class="todo-time" style="flex-shrink:0">${p.timestamp || ''}</span>
+        </div>
+        <div class="eta-row" style="display:flex;align-items:center;gap:5px;margin-top:6px;flex-wrap:wrap;">
+          <span style="font-size:.72rem;color:#888;font-weight:600;">預計回覆：</span>
+          ${etaBtns}
+          ${currentEta ? `<span class="eta-set-label">✓ ${currentEta}</span>` : ''}
         </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-left:12px; flex-shrink:0;">
-        <button class="priority-badge ${color}" data-star="${p.bed}">${priorityLabel(color)}</button>
+        ${ttasBadgeHtml(lvl)}
         <button class="view-btn">查看留言</button>
       </div>
     </div>`;
@@ -1356,64 +2054,49 @@ function renderPendingList(pending, done, stats) {
     </div>
   `).join("");
 
+  // 綁定 ETA 快選按鈕（醫生端 + 護理師端共用）
+  document.querySelectorAll(".eta-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const bed = btn.dataset.bed;
+      const eta = btn.dataset.eta;
+      const role = btn.dataset.role || 'doctor';
+      _replyEtaMap[bed] = eta;
+      const senderLabel = role === 'nurse' ? '護理師' : '醫師';
+      showToast(`✅ 已通知病患：${senderLabel}預計 ${eta} 回覆`);
+      // 寫入病患通知（統一走 doctor eta API）
+      fetch(`/api/doctor/pending/${encodeURIComponent(bed)}/eta`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bed,
+          eta,
+          doctor_id: state.currentUser?.id || (role === 'nurse' ? 'nurse' : 'doctor'),
+        })
+      }).catch(() => {});
+      if (role === 'doctor') {
+        renderPendingList(_lastDoctorData?.pending || [], _lastDoctorData?.done || []);
+      } else {
+        renderNurseMsgs();
+      }
+    });
+  });
+
   // 綁定點擊 (點擊卡片進入回覆)
   document.querySelectorAll(".todo-row[data-bed]").forEach((row) => {
-    row.addEventListener("click", (e) => {
-      if (e.target.classList.contains('priority-badge')) return;
-      // 從 _lastDoctorData 找到對應病患資料
+    row.addEventListener("click", () => {
       const patientRow = _lastDoctorData?.pending?.find(p => p.bed === row.dataset.bed)
         || _lastDoctorData?.done?.find(p => p.bed === row.dataset.bed)
         || null;
       openDoctorReply(row.dataset.bed, patientRow);
     });
   });
-
-  // 綁定優先等級標籤點擊（3 等級循環：一般 → 緊急 → 注意 → 一般）
-  document.querySelectorAll(".priority-badge[data-star]").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const bed = btn.dataset.star;
-      const colors = ['none', 'red', 'yellow'];
-      const currentColor = colors.find(c => btn.classList.contains(c)) || 'none';
-      const nextColor = colors[(colors.indexOf(currentColor) + 1) % colors.length];
-
-      // 更新 UI 即時反應
-      btn.classList.remove(currentColor);
-      btn.classList.add(nextColor);
-      btn.textContent = priorityLabel(nextColor);
-
-      // 更新左側指示條
-      const row = btn.closest('.todo-row');
-      if (row) {
-        row.classList.remove('priority-red', 'priority-yellow');
-        if (nextColor === 'red')    row.classList.add('priority-red');
-        if (nextColor === 'yellow') row.classList.add('priority-yellow');
-      }
-
-      // 更新計數
-      const allBadges = [...document.querySelectorAll('#pendingList .priority-badge[data-star]')];
-      const fakeList = allBadges.map(b => ({
-        star_color: ['red','yellow'].find(c => b.classList.contains(c)) || 'none'
-      }));
-      updatePriorityCounts(fakeList);
-
-      const toastMap = { red: '🔴 已標記為緊急', yellow: '🟡 已標記為注意', none: '⭕ 已清除標記' };
-      showToast(toastMap[nextColor] || '已更新');
-
-      try {
-        await api.togglePatientStar(bed, nextColor);
-      } catch {
-        showToast("⚠️ 標記更新失敗，請稍後重試");
-        btn.classList.remove(nextColor);
-        btn.classList.add(currentColor);
-        btn.textContent = priorityLabel(currentColor);
-      }
-    });
-  });
 }
 
 // 暫存最近一次 API 資料，供前端篩選重渲染用
 let _lastDoctorData = null;
+// 醫生設定的預計回覆時間：{ bed: etaString }
+const _replyEtaMap = {};
 
 function applyDoctorFilters() {
   if (!_lastDoctorData) return;
@@ -1428,10 +2111,7 @@ function applyDoctorFilters() {
     done    = done.filter(p => p.hospital === hospital);
   }
   if (priority) {
-    const match = priority === 'none'
-      ? p => !p.star_color || p.star_color === 'none'
-      : p => p.star_color === priority;
-    pending = pending.filter(match);
+    pending = pending.filter(p => String(p.latest_ttas_level || 3) === priority);
   }
 
   renderPendingList(pending, done, _lastDoctorData.stats);
@@ -1444,7 +2124,7 @@ document.getElementById("hospitalFilter")?.addEventListener("change", async () =
     showSkeleton("pendingList", 5);
     showSkeleton("doneList", 2);
     try {
-      _lastDoctorData = await api.getPendingPatients();
+      _lastDoctorData = await api.getPendingPatients("", _doctorType);
     } catch {
       showToast("⚠️ 清單載入失敗"); return;
     }
@@ -1461,6 +2141,14 @@ async function openDoctorReply(bed, patientRow) {
   state.currentBed = bed;
   document.getElementById("llmPreview").style.display = "none";
   document.getElementById("doctorReplyText").value = "";
+  // 重置對話紀錄面板
+  const drPanel = document.getElementById('doctorHistoryPanel');
+  if (drPanel) drPanel.style.display = 'none';
+  const drChevron = document.getElementById('doctorHistoryChevron');
+  if (drChevron) drChevron.textContent = '▼';
+  document.getElementById('doctorHistoryList').innerHTML = '<div style="text-align:center;color:#bbb;font-size:.78rem">載入中…</div>';
+  _chatHistory = [];
+  loadChatHistory(bed, 'doctorHistoryList');
 
   // 填入左側病患基本資訊（從清單 row 取得）
   const nameEl     = document.getElementById("replyPatientName");
@@ -1505,9 +2193,24 @@ async function openDoctorReply(bed, patientRow) {
         emoBadge.textContent = `病患心情：${emoIcon} ${firstUnread.emotion}`;
         emoBadge.style.display = 'inline-flex';
       }
+      // TTAS 標籤
+      const ttasBadgeEl = document.getElementById('doctorTtasBadge');
+      if (ttasBadgeEl && firstUnread.ttas_level) {
+        const LEVEL_COLOR = { 1: '#e53935', 2: '#ff6f00', 3: '#ffc107', 4: '#9e9e9e' };
+        const LEVEL_ICON  = { 1: '🔴', 2: '🟠', 3: '🟡', 4: '⚪' };
+        const lvl = firstUnread.ttas_level;
+        ttasBadgeEl.innerHTML = `<span style="background:${LEVEL_COLOR[lvl]};color:${lvl===3?'#555':'#fff'};padding:3px 10px;border-radius:12px;font-size:.78rem;font-weight:700">${LEVEL_ICON[lvl]} Level ${lvl}｜${firstUnread.ttas_category || ''}${firstUnread.ttas_summary ? '：' + firstUnread.ttas_summary : ''}</span>`;
+        ttasBadgeEl.style.display = 'block';
+        const nurseNote = firstUnread.pushed_to_doctor ? '' : '';
+        if (firstUnread.pushed_to_doctor) {
+          ttasBadgeEl.innerHTML += `<span style="font-size:.72rem;color:#1976d2;margin-left:6px">（由護理師推送）</span>`;
+        }
+      }
     } else {
       document.getElementById("patientMsgBubble").textContent = "（目前無待回覆訊息）";
       if (emoBadge) emoBadge.style.display = 'none';
+      const ttasBadgeEl = document.getElementById('doctorTtasBadge');
+      if (ttasBadgeEl) ttasBadgeEl.style.display = 'none';
     }
 
     // 多訊息選擇器（有 2+ 則未回覆時顯示）
@@ -1579,7 +2282,7 @@ function openHistoryModal() {
     if (!msgs.length) {
       list.innerHTML = '<div style="text-align:center;padding:32px;color:#aaa;font-size:0.85rem">尚無對話紀錄</div>';
     } else {
-      list.innerHTML = msgs.map((m, i) => {
+      list.innerHTML = msgs.map(m => {
         const icon = emotionEmoji[m.emotion] || '';
         const replyBlock = m.replied && m.reply_text
           ? `<div style="margin-top:8px;padding:8px 12px;background:#f0f8ff;border-radius:8px;
@@ -1700,6 +2403,41 @@ function selectDoctorMsg(msgId) {
   if (replyTxt) replyTxt.value = '';
 }
 
+// ── 醫生端：朗讀病患訊息 ──────────────────────────────────────
+function readPatientMsgAloud() {
+  const text = document.getElementById('patientMsgBubble')?.textContent?.trim();
+  if (!text || text === '載入中...' || text === '（目前無待回覆訊息）') {
+    showToast("⚠️ 目前沒有訊息可朗讀");
+    return;
+  }
+  if (!('speechSynthesis' in window)) { showToast("⚠️ 此裝置不支援語音朗讀"); return; }
+  window.speechSynthesis.cancel();
+  const ttas = document.getElementById('doctorTtasBadge')?.textContent?.trim();
+  const parts = [];
+  if (ttas) parts.push(`TTAS 分類：${ttas.replace(/\s+/g, ' ')}`);
+  parts.push(`病患留言：${text}`);
+  const utt = new SpeechSynthesisUtterance(parts.join('。'));
+  utt.lang = 'zh-TW';
+  utt.rate = 0.88;
+  const btn = document.getElementById('btnReadPatientMsg');
+  if (btn) { btn.textContent = '🔊 朗讀中…'; btn.disabled = true; }
+  utt.onend = utt.onerror = () => {
+    if (btn) { btn.textContent = '🔊 朗讀訊息'; btn.disabled = false; }
+  };
+  window.speechSynthesis.speak(utt);
+}
+
+// ── 醫生端：回覆內容 TTS 朗讀（送出前確認）──────────────────
+document.getElementById('btnReadReplyAloud')?.addEventListener('click', () => {
+  const text = document.getElementById('doctorReplyText')?.value?.trim();
+  if (!text) { showToast("⚠️ 請先輸入回覆內容"); return; }
+  if (!('speechSynthesis' in window)) { showToast("⚠️ 此裝置不支援語音朗讀"); return; }
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang = 'zh-TW'; utt.rate = 0.88;
+  window.speechSynthesis.speak(utt);
+});
+
 // ══ 醫生審核視覺處方影片 ══════════════════════════════════════
 let _rxReviewTasks = [];
 
@@ -1708,11 +2446,12 @@ async function loadAllRxReviewStat() {
   try {
     const data = await fetch('/api/doctor/prescription-reviews').then(r => r.json());
     _rxReviewTasks = (data.tasks || []).filter(t => t.status === 'review' || !t.status || t.status === 'pending');
-    const el = document.getElementById('statRxReview');
-    if (el) el.textContent = String(_rxReviewTasks.length);
-    // 若有待審核，讓卡片有輕微閃爍提示
-    const pill = document.getElementById('statRxPill');
-    if (pill) pill.style.animation = _rxReviewTasks.length > 0 ? 'rxPulse 2s infinite' : 'none';
+    const badge = document.getElementById('statRxReview');
+    if (badge) {
+      const count = _rxReviewTasks.length;
+      badge.textContent = String(count);
+      badge.style.display = count > 0 ? 'block' : 'none';
+    }
   } catch { /* 靜默失敗 */ }
 }
 
@@ -1959,7 +2698,7 @@ function expandPanel(type) {
       body.innerHTML = '<div style="padding:20px;color:#aaa">尚無留言記錄</div>';
     } else {
       const emotionEmoji = { '開心': '😊', '難過': '😟', '焦慮': '😰', '有問題': '🤔' };
-      body.innerHTML = `<div style="padding:14px 18px">` + msgs.map((m, idx) => {
+      body.innerHTML = `<div style="padding:14px 18px">` + msgs.map(m => {
         const icon = emotionEmoji[m.emotion] || m.emotion || '';
         const fullText = m.text || `[${m.emotion}]`;
         const replyBlock = m.replied && m.reply_text
@@ -2107,6 +2846,7 @@ async function submitPrescription() {
 
 // ══ 任意視界：感謝志工 ════════════════════════════════════════
 let _currentCrowdTaskId = null;  // 目前正在播放的群眾任務 ID
+let _currentCrowdLocation = '';  // 目前群眾影片的地點名稱（供 AI 導覽使用）
 
 async function thankVolunteer() {
   if (!_currentCrowdTaskId) return;
@@ -2132,8 +2872,8 @@ async function loadPatientPrescription() {
     // 同步更新引導列的視覺處方按鈕（已移至 anyview-guide）
     const guideBtn   = document.getElementById('btnRxPanelGuide');
     const guideBadge = document.getElementById('rxPanelBadgeGuide');
-    if (guideBtn)   guideBtn.style.display   = pending.length > 0 ? 'inline-flex' : 'none';
-    if (guideBadge) { guideBadge.style.display = pending.length > 0 ? 'flex' : 'none'; guideBadge.textContent = String(pending.length); }
+    if (guideBtn)   guideBtn.style.display   = 'inline-flex';
+    if (guideBadge) { guideBadge.style.display = pending.length > 0 ? 'flex' : 'none'; if (pending.length > 0) guideBadge.textContent = String(pending.length); }
   } catch { /* 靜默失敗 */ }
 }
 
@@ -2144,19 +2884,8 @@ function openRxPanel() {
   overlay.style.display = 'block';
   drawer.style.display  = 'flex';
   const pending = _rxPrescriptions.filter(r => r.status === 'pending');
-  const infoEl  = document.getElementById('rxPanelInfo');
-  const subEl   = document.getElementById('rxPanelSubtitle');
-  if (pending.length > 0) {
-    const rx = pending[pending.length - 1];
-    if (infoEl) infoEl.innerHTML = `
-      <div style="font-weight:800;font-size:0.9rem;margin-bottom:4px">${rx.visual_icon || '🏥'} ${rx.visual_label}</div>
-      <div style="color:#555">${rx.location_hint || '等待志工前往拍攝中'}</div>
-      ${rx.notes ? `<div style="margin-top:6px;color:#777;font-size:0.78rem">📝 ${rx.notes}</div>` : ''}`;
-    if (subEl) subEl.textContent = `醫師開立 · ${rx.created_at || ''}`;
-  } else {
-    if (infoEl) infoEl.textContent = '目前沒有待執行的視覺處方';
-    if (subEl)  subEl.textContent = '';
-  }
+  const subEl = document.getElementById('rxPanelSubtitle');
+  if (subEl) subEl.textContent = pending.length > 0 ? `醫師開立 · ${pending[pending.length - 1].created_at || ''}` : '';
   loadPrescriptionFulfillmentVideos();
 }
 
@@ -2181,11 +2910,16 @@ async function loadPrescriptionFulfillmentVideos() {
       return;
     }
     if (noVideo) noVideo.style.display = 'none';
-    list.innerHTML = tasks.map(t => `
-      <div style="flex-shrink:0;width:140px;cursor:pointer;border-radius:10px;overflow:hidden;
-                  background:#f0f8f5;border:1.5px solid rgba(45,143,97,0.2)"
-           onclick="closeRxPanel();playCrowdVideoFromPrescription('${t.video_url}','${t.id}','${t.location}')">
-        <div style="background:#2d8f61;padding:6px 8px;font-size:0.65rem;color:white;font-weight:700;
+    list.innerHTML = tasks.map(t => {
+      const isReview = t.status === 'review';
+      return `
+      <div style="flex-shrink:0;width:140px;border-radius:10px;overflow:hidden;
+                  background:${isReview ? '#f5f5f5' : '#f0f8f5'};
+                  border:1.5px solid ${isReview ? 'rgba(0,0,0,0.1)' : 'rgba(45,143,97,0.2)'};
+                  cursor:${isReview ? 'not-allowed' : 'pointer'};
+                  opacity:${isReview ? '0.65' : '1'}"
+           ${isReview ? '' : `onclick="closeRxPanel();playCrowdVideoFromPrescription('${t.video_url}','${t.id}','${t.location}')"`}>
+        <div style="background:${isReview ? '#aaa' : '#2d8f61'};padding:6px 8px;font-size:0.65rem;color:white;font-weight:700;
                     white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
           📍 ${t.location}
         </div>
@@ -2193,25 +2927,67 @@ async function loadPrescriptionFulfillmentVideos() {
                     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
           ${t.description}
         </div>
-        <div style="padding:3px 8px 6px;font-size:0.65rem;color:${t.status==='review'?'#856404':'#2d8f61'};font-weight:700">
-          ${t.status==='review'?'⏳ 審核中':'✅ 已完成'}
+        <div style="padding:3px 8px 6px;font-size:0.65rem;color:${isReview ? '#856404' : '#2d8f61'};font-weight:700">
+          ${isReview ? '⏳ 審核中' : '✅ 已完成'}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   } catch {}
 }
 
 function playCrowdVideoFromPrescription(videoUrl, taskId, location) {
   _currentCrowdTaskId = taskId;
   _currentCrowdLocation = location;
+
+  // 關閉即時攝影機串流
+  const camStream = document.getElementById('camStream');
+  if (camStream) { camStream.style.display = 'none'; camStream.src = ''; }
+  _selectedCamId = null;
+
+  // 關閉療癒頻道 iframe
+  const tcIframe = document.getElementById('tcIframe');
+  if (tcIframe) tcIframe.remove();
+
+  // 關閉 YouTube 播放器
+  const youtubePlayer = document.getElementById('crowdYoutubePlayer');
+  if (youtubePlayer) { youtubePlayer.style.display = 'none'; youtubePlayer.src = ''; }
+
   const player = document.getElementById('crowdVideoPlayer');
   const placeholder = document.getElementById('camPlaceholder');
+  const loading = document.getElementById('camLoading');
   const actions = document.getElementById('crowdVideoActions');
   if (!player) return;
-  player.src = videoUrl;
-  player.style.display = 'block';
+
   if (placeholder) placeholder.style.display = 'none';
-  if (actions) { actions.style.display = 'flex'; actions.style.removeProperty('display'); setTimeout(()=>{ actions.style.display='flex'; },50); }
+  if (loading) loading.style.display = 'none';
+
+  player.src = videoUrl;
+  player.muted = _isMuted;
+  player.style.display = 'block';
+  player.style.zIndex = '5';
+  player.play().catch(e => console.warn('自動撥放失敗:', e));
+
+  if (actions) actions.style.display = 'flex';
+
+  // 更新 badge 與控制欄
+  const badge = document.getElementById('videoLiveBadge');
+  const dot = document.getElementById('videoLiveDot');
+  const txt = document.getElementById('videoLiveText');
+  const controls = document.getElementById('videoControls');
+  if (badge && dot && txt) {
+    badge.style.display = '';
+    badge.style.background = 'rgba(245,166,35,0.92)';
+    badge.style.color = 'white';
+    dot.style.background = 'white';
+    txt.textContent = '視覺處方';
+  }
+  if (controls) controls.style.display = '';
+  const btnClose = document.getElementById('btnCloseStream');
+  if (btnClose) btnClose.style.display = '';
+
   document.getElementById('videoPanelTitle').textContent = `📹 ${location}`;
+  stopGlobeAnim();
+  showToast(`▶️ 正在播放：${location}`);
 }
 
 // 快速回覆模板
@@ -2241,6 +3017,7 @@ document.getElementById('btnAIGenReply')?.addEventListener('click', async () => 
         patient_name: patientName,
         patient_emotion: emotion,
         patient_text: msgText,
+        doctor_type: _doctorType,
       }),
     });
     const data = await res.json();
@@ -2284,12 +3061,12 @@ document.getElementById("micBtn")?.addEventListener("click", () => {
   rec.onend = () => {
     state._doctorRec = null;
     btn.classList.remove("recording");
-    btn.innerHTML = "🎙 語音錄製";
+    btn.innerHTML = `${_MIC} 語音錄製`;
   };
   rec.onerror = () => {
     state._doctorRec = null;
     btn.classList.remove("recording");
-    btn.innerHTML = "🎙 語音錄製";
+    btn.innerHTML = `${_MIC} 語音錄製`;
     showToast("⚠️ 語音辨識失敗，請重試");
   };
   rec.start();
@@ -2307,7 +3084,7 @@ document.getElementById("btnEmpathyRewrite")?.addEventListener("click", async ()
   btn.disabled = true;
   btn.textContent = "💝 轉譯中…";
   try {
-    const data = await api.empathyRewrite(rawText, emotion);
+    const data = await api.empathyRewrite(rawText, emotion, _chatHistory.slice(-3));
     if (data.rewritten) {
       ta.value = data.rewritten;
       showToast(data.fallback ? "📝 已套用備用溫暖模板" : "💝 已轉譯為溫暖語句，可修改後送出");
@@ -2329,9 +3106,14 @@ document.getElementById("btnSendReply")?.addEventListener("click", async () => {
     showToast("⚠️ 請輸入回覆內容");
     return;
   }
+  if (!state.currentMsgId) {
+    showToast("⚠️ 找不到待回覆訊息，請重新開啟病患頁面");
+    return;
+  }
+  const replyEta = document.getElementById("doctorReplyEta")?.value || "";
   try {
-    await api.sendDoctorReply(state.currentMsgId, finalText);
-    showToast("✅ 回覆已傳送給病患");
+    await api.sendDoctorReply(state.currentMsgId, finalText, replyEta);
+    showToast(replyEta ? `✅ 回覆已傳送，病患將看到預計時間：${replyEta}` : "✅ 回覆已傳送給病患");
     document.getElementById("llmPreview").style.display = "none";
     state.currentMsgId = null;
     await loadDoctorList();
@@ -2756,14 +3538,15 @@ async function submitModalUpload() {
     document.getElementById('modalProgress').style.display = 'none';
     document.getElementById('modalSuccess').style.display = 'block';
     document.getElementById('modalSuccessMsg').textContent =
-      `視訊已提交！累積獎勵：+${result.points_earned} 點`;
+      `視訊已提交！AI 分析中，積分即將核發（最高 +${result.base_points} 點）`;
 
-    showToast(`✅ 影片上傳成功！+${result.points_earned} 點`);
+    showToast(`✅ 影片上傳成功！AI 分析中…`);
     const completedTaskId = result.task_id;
+    const uploadUserId = state.currentUser?.id;
     _selectedTaskId = null;
 
-    // CLIP 內容符合度分析（非同步，不擋 UI）
-    runClipMatchAnalysis(completedTaskId);
+    // CLIP 內容符合度分析（非同步），分析完成後核發積分
+    runClipMatchAnalysis(completedTaskId, uploadUserId);
 
     // 刷新統計與地圖
     await loadCrowdData();
@@ -2789,7 +3572,7 @@ async function submitModalUpload() {
 }
 
 // ── CLIP 影片內容符合度（後端 CLIP 推論）────────────────────────────────
-async function runClipMatchAnalysis(taskId) {
+async function runClipMatchAnalysis(taskId, userId) {
   if (!taskId) return;
   const loadingEl      = document.getElementById('clipMatchLoading');
   const resultEl       = document.getElementById('clipMatchResult');
@@ -2904,6 +3687,46 @@ async function runClipMatchAnalysis(taskId) {
     }
 
     resultEl.style.display = 'block';
+
+    // ── 依符合度核發積分 ──
+    if (userId && data.score_pct >= 0 && data.ready) {
+      try {
+        const finRes = await fetch(`/api/crowd/finalize_points/${encodeURIComponent(taskId)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, score_pct: data.score_pct }),
+        }).then(r => r.json());
+
+        if (finRes.success) {
+          // 更新成功訊息顯示實際發放積分
+          const msgEl = document.getElementById('modalSuccessMsg');
+          if (msgEl) {
+            msgEl.textContent = `視訊已提交！累積獎勵：+${finRes.points_earned} 點` +
+              (data.score_pct < 70 ? `（符合度 ${data.score_pct}%，依比例發放）` : '');
+          }
+          showToast(`🎁 積分核發：+${finRes.points_earned} 點`);
+          // 里程碑獎勵
+          if (finRes.milestone_reward) {
+            const r = finRes.milestone_reward;
+            const store = document.getElementById('rgcStore');
+            const icon  = document.getElementById('rgcIcon');
+            const item  = document.getElementById('rgcItem');
+            const code  = document.getElementById('rgcCode');
+            const exp   = document.getElementById('rgcExpiry');
+            if (store) store.textContent = r.store || '—';
+            if (icon)  icon.textContent  = r.icon  || '🎁';
+            if (item)  item.textContent  = r.item  || '兌換券';
+            if (code)  code.textContent  = r.code  || '—';
+            if (exp)   exp.textContent   = r.expiry ? `有效期限：${r.expiry}` : '';
+            setTimeout(() => {
+              const modal = document.getElementById('rewardModal');
+              if (modal) modal.style.display = 'flex';
+            }, 800);
+          }
+          await loadCrowdData();
+        }
+      } catch { /* 靜默失敗，不影響 UI */ }
+    }
   } catch (e) {
     loadingEl.style.display = 'none';
   }
@@ -3171,6 +3994,7 @@ const observers = new MutationObserver(() => {
     stopGlobeAnim();
     stopTherapeuticIframe();   // 停止療癒精選影片
     resetToPlaceholder();
+    closeEmdr();               // 離開任意視界時完整清除 EMDR（含 AudioContext）
   }
 
   _lastActiveScreen = id;
@@ -3196,6 +4020,8 @@ function resetToPlaceholder() {
   if (crowdVideoPlayer) { crowdVideoPlayer.pause(); crowdVideoPlayer.src = ''; crowdVideoPlayer.style.display = 'none'; }
   const ytPlStop = document.getElementById('crowdYoutubePlayer');
   if (ytPlStop) { ytPlStop.src = ''; ytPlStop.style.display = 'none'; }
+  // 關閉 Windy / 療癒精選 iframe
+  document.getElementById('tcIframe')?.remove();
   const placeholder = document.getElementById('camPlaceholder');
   if (placeholder) placeholder.style.display = 'flex';
   const loading = document.getElementById('camLoading');
@@ -3255,9 +4081,10 @@ document.getElementById("btnCrowd")?.addEventListener("click", () => goTo("scree
 // 認證：註冊 / 忘記密碼
 // ════════════════════════════════════════════════
 const _authRoleConfig = {
-  patient: { icon: '😊', label: '病患端', extraId: 'regBed',  extraLabel: '床號', extraPlaceholder: '床號（如 503-B，請洽護理站）' },
-  doctor:  { icon: '👨‍⚕️', label: '醫師端', extraId: 'regDept', extraLabel: '科別', extraPlaceholder: '科別（如：內科、外科）' },
-  crowd:   { icon: '🙋', label: '志工/群眾端', extraId: null,  extraLabel: null,  extraPlaceholder: null }
+  patient: { icon: '😊', label: '病患端',     extraId: 'regBed',      extraLabel: '床號',   extraPlaceholder: '床號（如 503-B，請洽護理站）' },
+  doctor:  { icon: '👨‍⚕️', label: '醫師端',     extraId: 'regDept',     extraLabel: '科別',   extraPlaceholder: '科別（如：內科、外科）' },
+  crowd:   { icon: '🙋', label: '志工/群眾端', extraId: null,          extraLabel: null,     extraPlaceholder: null },
+  nurse:   { icon: '🩺', label: '護理師端',   extraId: 'regHospital', extraLabel: '任職醫院', extraPlaceholder: '任職醫院（如：台北總院）' },
 };
 let _authRole  = 'patient';
 let _forgotOtp = '';
@@ -3279,7 +4106,7 @@ function openAuthRegister(role) {
   document.getElementById('regError').style.display  = 'none';
   document.getElementById('regStep1').style.display  = 'block';
   document.getElementById('regStep2').style.display  = 'none';
-  const colors = { patient:'linear-gradient(135deg,#2d8f61,#38af7a)', doctor:'linear-gradient(135deg,#667eea,#764ba2)', crowd:'linear-gradient(135deg,#f5a623,#ffc83a)' };
+  const colors = { patient:'linear-gradient(135deg,#2d8f61,#38af7a)', doctor:'linear-gradient(135deg,#667eea,#764ba2)', crowd:'linear-gradient(135deg,#f5a623,#ffc83a)', nurse:'linear-gradient(135deg,#d64d80,#e891bb)' };
   const btn = document.getElementById('regSubmitBtn');
   if (btn) btn.style.background = colors[_authRole] || colors.patient;
   document.getElementById('authRegisterModal').style.display = 'flex';
@@ -3521,12 +4348,21 @@ function closePatientSharePanel() {
 
 function onPatientShareLocationInput(val) {
   if (!val.trim()) {
-    _patientShareLatLng = null;
-    const hint = document.getElementById('patientShareMapHint');
-    if (hint) hint.style.display = 'flex';
-    const placeEl = document.getElementById('patientShareSelectedPlace');
-    if (placeEl) placeEl.style.display = 'none';
-    if (_patientShareMarker) _patientShareMarker.setPosition(null);
+    // 地圖已初始化就保留顯示，只清除座標與選點標示
+    if (_patientShareMap) {
+      _patientShareLatLng = null;
+      const placeEl = document.getElementById('patientShareSelectedPlace');
+      if (placeEl) placeEl.style.display = 'none';
+      if (_patientShareMarker) _patientShareMarker.setPosition(null);
+    } else {
+      // 地圖尚未初始化才顯示提示
+      _patientShareLatLng = null;
+      const hint = document.getElementById('patientShareMapHint');
+      if (hint) hint.style.display = 'flex';
+      const placeEl = document.getElementById('patientShareSelectedPlace');
+      if (placeEl) placeEl.style.display = 'none';
+      if (_patientShareMarker) _patientShareMarker.setPosition(null);
+    }
   }
 }
 
@@ -3566,7 +4402,8 @@ function openPatientShareModal(task) {
   const previewEl = document.getElementById('shareTaskPreview');
   const msgEl = document.getElementById('shareMessage');
   if (previewEl) previewEl.textContent = `📍 ${task.location}：${task.description || ''}`;
-  const msg = `嗨！我是${name}，目前住在${hospital} ${bed}。\n\n我想請你幫我拍一段影片，讓我能在病房裡欣賞外面的世界 🌍\n\n📍 拍攝地點：${task.location}\n📝 拍攝內容：${task.description || '自然風景'}\n\n拍好後可以上傳到「智慧醫療陪伴系統」，任務代碼：${task.id}\n謝謝你 💙`;
+  const uploadLink = `${window.location.origin}/?task=${task.id}`;
+  const msg = `嗨！我是${name}，目前住在${hospital} ${bed}。\n\n我想請你幫我拍一段影片，讓我能在病房裡欣賞外面的世界 🌍\n\n📍 拍攝地點：${task.location}\n📝 拍攝內容：${task.description || '自然風景'}\n\n👇 請複製以下完整連結，貼到手機瀏覽器開啟即可直接拍攝或上傳：\n${uploadLink}\n\n謝謝你 💙`;
   if (msgEl) msgEl.value = msg;
   document.getElementById('shareModal').style.display = 'flex';
   closePatientSharePanel();
@@ -3787,7 +4624,7 @@ function openRateModal() {
   document.getElementById('rateText').value = '';
   document.getElementById('chkAddFriend').checked = false;
   document.getElementById('rateVoicePreview').style.display = 'none';
-  document.getElementById('btnRateVoiceRec').textContent = '🎙 開始錄音';
+  document.getElementById('btnRateVoiceRec').innerHTML = `${_MIC} 開始錄音`;
   document.getElementById('rateVoiceTimer').style.display = 'none';
   _renderStars(5);
   document.getElementById('rateModal').style.display = 'flex';
@@ -3871,6 +4708,7 @@ async function submitRating() {
       }),
     });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '評分送出失敗');
 
     // 若有語音，上傳
     if (_rateVoiceBlob && data.rate_id) {
@@ -4226,6 +5064,9 @@ function renderPatientNotifList(notifs) {
     const unreadDot = !n.read ? '<span class="ni-unread-dot"></span>' : '';
     if (n.type === 'doctor_reply') {
       const replyPreview = (n.reply_text || '').slice(0, 40);
+      const etaHtml = n.reply_eta
+        ? `<div class="ni-msg" style="color:#e67e22;font-weight:600">⏰ 醫師預計於「${escHtml(n.reply_eta)}」回覆您</div>`
+        : '';
       return `
         <div class="notif-item" onclick="markPatientNotifRead('${n.id}',this)">
           <div class="ni-header">
@@ -4234,12 +5075,27 @@ function renderPatientNotifList(notifs) {
             <span class="ni-time">${n.timestamp}</span>
           </div>
           ${n.message_preview ? `<div class="ni-msg">您：「${escHtml(n.message_preview)}…」</div>` : ''}
+          ${etaHtml}
           ${replyPreview ? `<div class="ni-msg" style="color:#2d8f61">↩ 醫師：「${escHtml(replyPreview)}${n.reply_text.length > 40 ? '…' : ''}」</div>` : ''}
           <button onclick="event.stopPropagation();closePatientFriendPanel();document.getElementById('btnMedical')?.click()"
             style="margin-top:6px;padding:4px 10px;border-radius:10px;border:none;
                    background:#e8f5e9;color:#2d8f61;font-size:0.72rem;font-weight:700;cursor:pointer;font-family:inherit">
             查看完整回覆 →
           </button>
+        </div>`;
+    }
+    if (n.type === 'eta_notice') {
+      const senderName = n.doctor_name || '醫護人員';
+      return `
+        <div class="notif-item" onclick="markPatientNotifRead('${n.id}',this)">
+          <div class="ni-header">
+            ${unreadDot}
+            <span class="ni-name">⏰ 預計回覆時間通知</span>
+            <span class="ni-time">${n.timestamp}</span>
+          </div>
+          <div class="ni-msg" style="color:#e67e22;font-weight:600">
+            ${escHtml(senderName)} 預計將於 <strong>${escHtml(n.eta)}</strong> 回覆您，請耐心等候 🙏
+          </div>
         </div>`;
     }
     if (n.type === 'task_upload') {
@@ -4331,12 +5187,13 @@ function goToNotifVideo(encodedData) {
     const ytPl = document.getElementById('crowdYoutubePlayer');
     if (isYT) {
       player.style.display = 'none'; player.src = '';
-      if (ytPl) { ytPl.style.display = 'block'; ytPl.style.zIndex = '5'; ytPl.src = v.url + '?autoplay=1'; }
+      if (ytPl) { ytPl.style.display = 'block'; ytPl.style.zIndex = '5'; ytPl.src = v.url + '?autoplay=1&enablejsapi=1' + (_isMuted ? '&mute=1' : ''); }
     } else {
       if (ytPl) { ytPl.style.display = 'none'; ytPl.src = ''; }
       player.style.display = 'block';
       player.style.zIndex = '5';
       player.src = v.url;
+      player.muted = _isMuted;
       player.play().catch(() => {});
     }
     const badge = document.getElementById('videoLiveBadge');
@@ -4529,6 +5386,55 @@ function closeWishlistModal() {
   document.getElementById("wishlistModal").style.display = "none";
 }
 
+function playWishFulfilledVideo(videoUrl, placeName, wishId) {
+  // 停止其他播放源
+  const camStream = document.getElementById('camStream');
+  if (camStream) { camStream.style.display = 'none'; camStream.src = ''; }
+  const ytPl = document.getElementById('crowdYoutubePlayer');
+  if (ytPl) { ytPl.style.display = 'none'; ytPl.src = ''; }
+  const tcIframe = document.getElementById('tcIframe');
+  if (tcIframe) tcIframe.remove();
+  _selectedCamId = null;
+
+  const player = document.getElementById('crowdVideoPlayer');
+  const placeholder = document.getElementById('camPlaceholder');
+  if (!player) return;
+  if (placeholder) placeholder.style.display = 'none';
+
+  player.src = videoUrl;
+  player.muted = _isMuted;
+  player.style.display = 'block';
+  player.style.zIndex = '5';
+  player.play().catch(e => console.warn('自動播放失敗:', e));
+
+  _currentCrowdTaskId = wishId || null;
+  const actionsDiv = document.getElementById('crowdVideoActions');
+  if (actionsDiv) actionsDiv.style.display = _currentCrowdTaskId ? 'flex' : 'none';
+  const thankBtn = document.getElementById('btnThankVolunteer');
+  if (thankBtn) { thankBtn.disabled = false; thankBtn.textContent = '💝 感謝志工'; }
+  const rateBtn3 = document.getElementById('btnRateVideo');
+  if (rateBtn3) { rateBtn3.disabled = false; rateBtn3.textContent = '⭐ 評分'; }
+
+  const badge = document.getElementById('videoLiveBadge');
+  const dot = document.getElementById('videoLiveDot');
+  const txt = document.getElementById('videoLiveText');
+  const controls = document.getElementById('videoControls');
+  const btnClose = document.getElementById('btnCloseStream');
+  const title = document.getElementById('videoPanelTitle');
+  if (badge && dot && txt) {
+    badge.style.display = '';
+    badge.style.background = 'rgba(245,166,35,0.92)';
+    badge.style.color = 'white';
+    dot.style.background = 'white';
+    txt.textContent = '心願成果';
+  }
+  if (controls) controls.style.display = '';
+  if (btnClose) btnClose.style.display = '';
+  if (title) title.textContent = `🌟 ${placeName}`;
+  stopGlobeAnim();
+  showToast(`▶️ 正在播放心願成果：${placeName}`);
+}
+
 async function loadPatientWishlist() {
   const user = state.currentUser;
   if (!user) return;
@@ -4560,11 +5466,18 @@ function renderWishlist(wishes) {
 
     let statusBlock = '';
     if (fulfilled) {
+      const safeUrl = encodeURIComponent(w.fulfilled_video_url);
+      const safeName = escHtml(w.place_name).replace(/'/g, '&apos;');
       statusBlock = `
         <div style="margin-top:10px;padding:12px;background:#f0fff4;border-radius:10px;border:1.5px solid #2d8f61">
-          <div style="font-size:0.8rem;font-weight:800;color:#2d8f61;margin-bottom:6px">🎉 志工已回傳成果！</div>
-          <video controls src="${w.fulfilled_video_url}" style="width:100%;border-radius:8px;max-height:200px;background:#000"></video>
-          ${w.fulfilled_at ? `<div style="font-size:0.72rem;color:#aaa;margin-top:4px">📅 ${w.fulfilled_at}</div>` : ''}
+          <div style="font-size:0.8rem;font-weight:800;color:#2d8f61;margin-bottom:8px">🎉 志工已回傳成果！</div>
+          ${w.fulfilled_at ? `<div style="font-size:0.72rem;color:#aaa;margin-bottom:8px">📅 ${w.fulfilled_at}</div>` : ''}
+          <button onclick="closeWishlistModal();playWishFulfilledVideo(decodeURIComponent('${safeUrl}'),'${safeName}','${w.id}')"
+            style="width:100%;padding:9px;border-radius:8px;border:none;cursor:pointer;font-family:inherit;
+                   background:linear-gradient(135deg,#2d8f61,#3aaf7a);color:white;font-weight:800;
+                   font-size:0.82rem;box-shadow:0 2px 8px rgba(45,143,97,0.3)">
+            ▶ 在任意視界播放
+          </button>
         </div>`;
     } else if (claimed) {
       statusBlock = `
@@ -4614,11 +5527,38 @@ async function addWish() {
     });
     document.getElementById("wishPlaceInput").value = "";
     document.getElementById("wishDescInput").value = "";
-    showToast("🌟 心願已新增！");
+    showToast("🌟 心願已新增！志工將可認領");
     loadPatientWishlist();
   } catch (e) {
     showToast("⚠️ 新增失敗：" + e.message);
   }
+}
+
+function addWishForFriend() {
+  const placeName = document.getElementById("wishPlaceInput").value.trim();
+  const desc = document.getElementById("wishDescInput").value.trim();
+  if (!placeName) { showToast("⚠️ 請填寫地點名稱"); return; }
+
+  closeWishlistModal();
+
+  // 預填「指定親友拍攝」表單並跳轉
+  const locEl = document.getElementById('patientShareLocation');
+  const reqEl = document.getElementById('patientShareRequirements');
+  if (locEl) locEl.value = placeName;
+  if (reqEl) reqEl.value = desc;
+  _patientShareLatLng = null;
+  const hint = document.getElementById('patientShareMapHint');
+  if (hint) hint.style.display = 'flex';
+  const placeEl = document.getElementById('patientShareSelectedPlace');
+  if (placeEl) { placeEl.style.display = 'block'; placeEl.textContent = `📍 ${placeName}`; }
+  if (_patientShareMarker) _patientShareMarker.setPosition(null);
+  if (_patientShareInfoWindow) _patientShareInfoWindow.close();
+
+  goTo('screen-patient-share');
+  setTimeout(() => {
+    _initPatientShareMap();
+    if (_patientShareMap) google.maps.event.trigger(_patientShareMap, 'resize');
+  }, 120);
 }
 
 async function deleteWish(wishId) {
@@ -4850,3 +5790,229 @@ async function uploadFulfillVideo() {
 }
 
 console.log("✅ 安心醫伴 app.js 載入完成");
+
+// ════════════════════════════════════════════════
+// 🔗 深連結偵測（親友點連結直接進入上傳畫面）
+// 格式：/?task=task_008
+// ════════════════════════════════════════════════
+(function detectDeepLink() {
+  const params = new URLSearchParams(window.location.search);
+  const taskId = params.get('task');
+  if (!taskId) return;
+
+  // 清掉 URL 參數，避免重新整理重複觸發
+  window.history.replaceState({}, '', window.location.pathname);
+
+  fetch(`/api/crowd/tasks/${taskId}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.task) _initFriendUploadScreen(data.task);
+    })
+    .catch(() => {/* 查不到就停在首頁 */});
+})();
+
+function _initFriendUploadScreen(task) {
+  const locEl  = document.getElementById('friendTaskLocation');
+  const descEl = document.getElementById('friendTaskDesc');
+  const bedEl  = document.getElementById('friendTaskBed');
+  if (locEl)  locEl.textContent  = `📍 ${task.location}`;
+  if (descEl) descEl.textContent = `📝 ${task.description || '自然風景'}`;
+  if (bedEl)  bedEl.textContent  = `🏥 來自：${task.requested_by || '病患'}`;
+
+  // 儲存任務資料供後續上傳使用
+  _selectedTaskId   = task.id;
+  _selectedTaskData = task;
+
+  goTo('screen-friend-upload');
+}
+
+function friendStartCamera() {
+  if (!_selectedTaskData) return;
+  // 先開 uploadModal（帶入任務資訊），再立即開鏡頭
+  openUploadModal(_selectedTaskData);
+  setTimeout(() => openCameraCapture(), 150);
+}
+
+function friendChooseFile() {
+  if (!_selectedTaskData) return;
+  // 先開 uploadModal，再立即呼叫檔案選擇器
+  openUploadModal(_selectedTaskData);
+  setTimeout(() => document.getElementById('videoFileInput')?.click(), 150);
+}
+
+// ══════════════════════════════════════════════════════════════
+// EMDR 眼動減敏系統
+// ══════════════════════════════════════════════════════════════
+
+// ── 觸發追蹤 ──────────────────────────────────────────────────
+const _emdr = {
+  msgTimestamps: [], camTimestamps: [],
+  watchStart: null, watchTimer: null, triggered: false,
+};
+const EMDR_MSG_COUNT  = 3;
+const EMDR_MSG_WINDOW = 5 * 60 * 1000;
+const EMDR_CAM_COUNT  = 5;
+const EMDR_CAM_WINDOW = 2 * 60 * 1000;
+const EMDR_WATCH_SEC  = 180;
+
+function emdrTrack(type) {
+  if (!document.getElementById('screen-view')?.classList.contains('active') &&
+      !document.getElementById('screen-medical')?.classList.contains('active')) return;
+  if (_emdr.triggered) return;
+  const now = Date.now();
+  if (type === 'msg') {
+    _emdr.msgTimestamps.push(now);
+    _emdr.msgTimestamps = _emdr.msgTimestamps.filter(t => now - t <= EMDR_MSG_WINDOW);
+    if (_emdr.msgTimestamps.length >= EMDR_MSG_COUNT) showEmdr('短時間內持續傳送多則訊息');
+  }
+  if (type === 'cam') {
+    _emdr.camTimestamps.push(now);
+    _emdr.camTimestamps = _emdr.camTimestamps.filter(t => now - t <= EMDR_CAM_WINDOW);
+    if (_emdr.camTimestamps.length >= EMDR_CAM_COUNT) showEmdr('連續切換多個攝影機畫面');
+  }
+}
+function emdrWatchStart() {
+  emdrWatchStop();
+  if (_emdr.triggered) return;
+  _emdr.watchTimer = setTimeout(() => { if (!_emdr.triggered) showEmdr('長時間持續觀看影片'); }, EMDR_WATCH_SEC * 1000);
+}
+function emdrWatchStop() {
+  if (_emdr.watchTimer) { clearTimeout(_emdr.watchTimer); _emdr.watchTimer = null; }
+}
+
+// ── 動畫引擎 ──────────────────────────────────────────────────
+const _emdrEng = {
+  raf: null, lastTime: 0, phase: 0,
+  pattern: 'horizontal',  // horizontal | diagonal | z
+  speedHz: 0.2,           // 可調：慢0.18 中0.32 快0.5
+  audioCtx: null,
+  audioEnabled: true,
+  atEndpoint: false,      // 防重複觸發
+  prevSide: null,
+};
+const EMDR_SPEEDS = { slow: 0.18, medium: 0.32, fast: 0.5 };
+
+// 計算光點在軌道內的正規化座標 (tx,ty) ∈ [0,1]
+function _emdrPos(phase, pattern) {
+  const raw = ((phase % 1) + 1) % 1;
+  // 使用 cosine 曲線 → 兩端慢、中間快（自然模擬慢→快→慢）
+  const t = (1 - Math.cos(raw * Math.PI * 2)) / 2;
+
+  if (pattern === 'horizontal') {
+    return { tx: t, ty: 0.5 };
+  } else if (pattern === 'diagonal') {
+    return { tx: t, ty: t };          // 左上 ↔ 右下
+  } else {                             // z 字型
+    const seg = raw * 3;
+    const ease = s => (1 - Math.cos(s * Math.PI)) / 2;
+    if (seg < 1)      return { tx: ease(seg),       ty: 0.08 };           // 上橫
+    else if (seg < 2) return { tx: 1 - ease(seg-1), ty: 0.08 + ease(seg-1)*0.84 }; // 斜線
+    else              return { tx: ease(seg-2),      ty: 0.92 };           // 下橫
+  }
+}
+
+function _emdrAnimate(ts) {
+  const eng = _emdrEng;
+  if (eng.lastTime === 0) eng.lastTime = ts;
+  const dt = Math.min((ts - eng.lastTime) / 1000, 0.1);
+  eng.lastTime = ts;
+  eng.phase += dt * eng.speedHz;
+
+  const track = document.getElementById('emdrTrack');
+  const dot   = document.getElementById('emdrDot');
+  if (!track || !dot) { eng.raf = null; return; }
+
+  const tw = track.offsetWidth, th = track.offsetHeight;
+  const ds = 34, pad = 14;
+  const { tx, ty } = _emdrPos(eng.phase, eng.pattern);
+  dot.style.left = (pad + tx * (tw - ds - pad * 2)) + 'px';
+  dot.style.top  = (pad + ty * (th - ds - pad * 2)) + 'px';
+
+  // 偵測端點（左側 tx<0.04，右側 tx>0.96）觸發音效 + 震動
+  const isLeft  = tx < 0.04;
+  const isRight = tx > 0.96;
+  if ((isLeft || isRight) && !eng.atEndpoint) {
+    eng.atEndpoint = true;
+    const side = isLeft ? 'left' : 'right';
+    _emdrPing(side);
+    if (navigator.vibrate) navigator.vibrate(55);
+  } else if (!isLeft && !isRight) {
+    eng.atEndpoint = false;
+  }
+
+  eng.raf = requestAnimationFrame(_emdrAnimate);
+}
+
+// 雙側音效：端點時在對應耳朵播一個短促 ping
+function _emdrPing(side) {
+  if (!_emdrEng.audioEnabled) return;
+  try {
+    if (!_emdrEng.audioCtx)
+      _emdrEng.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _emdrEng.audioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const pan  = ctx.createStereoPanner();
+
+    osc.type = 'sine';
+    osc.frequency.value = 480;           // 柔和音調
+    gain.gain.setValueAtTime(0.22, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+    pan.pan.value = side === 'left' ? -0.92 : 0.92;
+
+    osc.connect(gain); gain.connect(pan); pan.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.25);
+  } catch (e) { /* 靜默失敗 */ }
+}
+
+// ── 控制函式（HTML 呼叫） ──────────────────────────────────────
+function emdrSetPattern(p) {
+  _emdrEng.pattern = p;
+  ['horizontal','diagonal','z'].forEach(k => {
+    document.getElementById('emdrPat-' + k)?.classList.toggle('active', k === p);
+  });
+}
+function emdrSetSpeed(s) {
+  _emdrEng.speedHz = EMDR_SPEEDS[s] || 0.35;
+  ['slow','medium','fast'].forEach(k => {
+    document.getElementById('emdrSpd-' + k)?.classList.toggle('active', k === s);
+  });
+}
+function emdrToggleAudio() {
+  _emdrEng.audioEnabled = !_emdrEng.audioEnabled;
+  const btn = document.getElementById('emdrAudioBtn');
+  if (btn) btn.textContent = _emdrEng.audioEnabled ? '🔊 音效：開' : '🔇 音效：關';
+}
+
+function showEmdr(reason) {
+  _emdr.triggered = true;
+  emdrWatchStop();
+  const overlay  = document.getElementById('emdrOverlay');
+  const reasonEl = document.getElementById('emdrTriggerReason');
+  if (reasonEl) reasonEl.textContent = reason;
+  if (overlay)  overlay.style.display = 'flex';
+
+  // 啟動動畫
+  if (_emdrEng.raf) cancelAnimationFrame(_emdrEng.raf);
+  _emdrEng.lastTime = 0;
+  _emdrEng.phase = 0;
+  _emdrEng.atEndpoint = false;
+  // 初始位置
+  const dot = document.getElementById('emdrDot');
+  if (dot) { dot.style.left = '14px'; dot.style.top = '53px'; }
+  _emdrEng.raf = requestAnimationFrame(_emdrAnimate);
+}
+
+function closeEmdr() {
+  if (_emdrEng.raf) { cancelAnimationFrame(_emdrEng.raf); _emdrEng.raf = null; }
+  // 關閉 AudioContext 釋放資源
+  if (_emdrEng.audioCtx) { _emdrEng.audioCtx.close(); _emdrEng.audioCtx = null; }
+  const overlay = document.getElementById('emdrOverlay');
+  if (overlay) overlay.style.display = 'none';
+  _emdr.triggered = false;
+  _emdr.msgTimestamps = [];
+  _emdr.camTimestamps = [];
+}

@@ -68,6 +68,13 @@ const api = {
     return res.json();
   },
 
+  async getWindyWebcams() {
+    // 不帶座標 → 後端使用多地點搜尋（東京、京都、首爾、香港、富士山等）
+    const res = await fetch(`${BASE_URL}/api/windy/webcams`);
+    if (!res.ok) return { cameras: [] };
+    return res.json();
+  },
+
   /**
    * 取得 MJPEG proxy URL（直接貼給 <img src=>）
    * @param {string} camId Twipcam 攝影機 ID
@@ -88,13 +95,9 @@ const api = {
     return res.json();
   },
 
-  async sendPatientMessage(patientId, bed, emotion, text = "", doctorId = null, sentiment = null) {
-    const body = { patient_id: patientId, bed, emotion, text, doctor_id: doctorId };
-    // 附上 AI 情緒分析結果（Hugging Face Transformers.js 推論）
-    if (sentiment) {
-      body.sentiment       = sentiment.label;
-      body.sentiment_score = sentiment.score;
-    }
+  async sendPatientMessage(patientId, bed, emotion, text = "", doctorId = null, _unused = null, ttasLevel = 3, ttasCategory = "常規護理", ttasSummary = "") {
+    const body = { patient_id: patientId, bed, emotion, text, doctor_id: doctorId,
+                   ttas_level: ttasLevel, ttas_category: ttasCategory, ttas_summary: ttasSummary };
     const res = await fetch(`${BASE_URL}/api/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -113,9 +116,13 @@ const api = {
   },
 
   // ── 醫聲相伴（醫生端）───────────────────────
-  async getPendingPatients(hospital = "") {
-    const url = hospital ? `${BASE_URL}/api/doctor/pending?hospital=${encodeURIComponent(hospital)}` : `${BASE_URL}/api/doctor/pending`;
-    const res = await fetch(url);
+  async getPendingPatients(hospital = "", doctorType = "", doctorId = "") {
+    const params = new URLSearchParams();
+    if (hospital)   params.set('hospital',    hospital);
+    if (doctorType) params.set('doctor_type', doctorType);
+    if (doctorId)   params.set('doctor_id',   doctorId);
+    const qs = params.toString();
+    const res = await fetch(`${BASE_URL}/api/doctor/pending${qs ? '?' + qs : ''}`);
     return res.json();
   },
 
@@ -133,11 +140,11 @@ const api = {
     return res.json();
   },
 
-  async sendDoctorReply(messageId, replyText) {
+  async sendDoctorReply(messageId, replyText, replyEta = "") {
     const res = await fetch(`${BASE_URL}/api/doctor/reply`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message_id: messageId, reply_text: replyText }),
+      body: JSON.stringify({ message_id: messageId, reply_text: replyText, reply_eta: replyEta }),
     });
     return res.json();
   },
@@ -151,12 +158,17 @@ const api = {
     return res.json();
   },
 
-  async empathyRewrite(rawText, patientEmotion = '') {
+  async empathyRewrite(rawText, patientEmotion = '', history = []) {
     const res = await fetch(`${BASE_URL}/api/llm/empathy-rewrite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw_text: rawText, patient_emotion: patientEmotion }),
+      body: JSON.stringify({ raw_text: rawText, patient_emotion: patientEmotion, history }),
     });
+    return res.json();
+  },
+
+  async getMessageHistory(bed, limit = 5) {
+    const res = await fetch(`${BASE_URL}/api/messages/history?bed=${encodeURIComponent(bed)}&limit=${limit}`);
     return res.json();
   },
 

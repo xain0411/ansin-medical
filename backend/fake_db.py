@@ -5,11 +5,40 @@ from typing import List, Dict
 
 # ── 使用者 ──────────────────────────────────────────────
 USERS: Dict[str, dict] = {
-    "patient_503B": {"id": "patient_503B", "role": "patient", "name": "王小明", "bed": "503-B", "hospital": "台北總院"},
-    "patient_504A": {"id": "patient_504A", "role": "patient", "name": "陳美玲", "bed": "504-A", "hospital": "台北總院"},
-    "doctor_001":   {"id": "doctor_001",   "role": "doctor",  "name": "林醫師", "dept": "內科", "hospital": "台北總院"},
-    "doctor_002":   {"id": "doctor_002",   "role": "doctor",  "name": "陳醫師", "dept": "外科", "hospital": "台中分院"},
-    "doctor_003":   {"id": "doctor_003",   "role": "doctor",  "name": "李醫師", "dept": "骨科", "hospital": "高雄分院"},
+    # ── 病患（care_team 由入院時護理師設定，模擬無需 HIS 整合）──
+    "patient_510C": {
+        "id": "patient_510C", "role": "patient", "name": "林俊宏",
+        "bed": "510-C", "hospital": "台北總院",
+        "care_team": {
+            "attending": {"id": "doctor_004", "name": "王主治醫師", "dept": "內科"},
+            "resident":  {"id": "doctor_001", "name": "林醫師",     "dept": "內科"},
+            "nurse":     {"id": "nurse_001",  "name": "李護理師"},
+        }
+    },
+    "patient_503B": {
+        "id": "patient_503B", "role": "patient", "name": "王小明",
+        "bed": "503-B", "hospital": "台北總院",
+        "care_team": {
+            "attending": {"id": "doctor_004", "name": "王主治醫師", "dept": "內科"},
+            "resident":  {"id": "doctor_001", "name": "林醫師",     "dept": "內科"},
+            "nurse":     {"id": "nurse_001",  "name": "李護理師"},
+        }
+    },
+    "patient_504A": {
+        "id": "patient_504A", "role": "patient", "name": "陳美玲",
+        "bed": "504-A", "hospital": "台北總院",
+        "care_team": {
+            "attending": {"id": "doctor_004", "name": "王主治醫師", "dept": "內科"},
+            "resident":  {"id": "doctor_001", "name": "林醫師",     "dept": "內科"},
+            "nurse":     {"id": "nurse_001",  "name": "李護理師"},
+        }
+    },
+    # 住院醫師 (resident)
+    "doctor_001":   {"id": "doctor_001",   "role": "doctor",  "doctor_type": "resident",  "name": "林醫師",     "dept": "內科", "hospital": "台北總院"},
+    "doctor_002":   {"id": "doctor_002",   "role": "doctor",  "doctor_type": "resident",  "name": "陳醫師",     "dept": "外科", "hospital": "台中分院"},
+    # 主治醫師 (attending)
+    "doctor_003":   {"id": "doctor_003",   "role": "doctor",  "doctor_type": "attending", "name": "李醫師",     "dept": "骨科", "hospital": "高雄分院"},
+    "doctor_004":   {"id": "doctor_004",   "role": "doctor",  "doctor_type": "attending", "name": "王主治醫師", "dept": "內科", "hospital": "台北總院"},
     "crowd_001":    {"id": "crowd_001",    "role": "crowd",   "name": "張大志", "points": 2610},
     "crowd_002":    {"id": "crowd_002",    "role": "crowd",   "name": "李志明", "points": 3890},
     "crowd_003":    {"id": "crowd_003",    "role": "crowd",   "name": "陳小芬", "points": 1560},
@@ -17,41 +46,106 @@ USERS: Dict[str, dict] = {
     "crowd_005":    {"id": "crowd_005",    "role": "crowd",   "name": "林美惠", "points": 5200},
     "crowd_006":    {"id": "crowd_006",    "role": "crowd",   "name": "黃俊豪", "points": 980},
     "crowd_007":    {"id": "crowd_007",    "role": "crowd",   "name": "吳雅婷", "points": 4100},
+    "nurse_001":    {"id": "nurse_001",    "role": "nurse",   "name": "李護理師", "hospital": "台北總院"},
+    "nurse_002":    {"id": "nurse_002",    "role": "nurse",   "name": "王護理師", "hospital": "台中分院"},
 }
+
+# ── 分流佇列（AI 分流後分配至對應角色）──────────────
+# L1→主治醫師 L2→住院醫師 L3/L4→護理師
+NURSE_QUEUE: List[dict] = [
+    {"id": 1, "bed": "503-B", "patient_id": "patient_503B", "text": "醫生，我今天早上的頭很暈，還有點想吐，請問這是怎麼回事啊？",
+     "ttas_level": 3, "ttas_category": "常規護理", "route": "nurse", "timestamp": "2026/1/4 09:31"},
+    {"id": 4, "bed": "504-A", "patient_id": "patient_504A", "text": "發炎的情況有沒有好轉？我還是覺得很不舒服",
+     "ttas_level": 3, "ttas_category": "常規護理", "route": "nurse", "timestamp": "2026/1/2 10:49"},
+    {"id": 6, "bed": "506-B", "patient_id": "patient_506B", "text": "換藥時間到了，護理師可以來幫我換嗎？",
+     "ttas_level": 3, "ttas_category": "常規護理", "route": "nurse", "timestamp": "2026/1/1 08:20"},
+    {"id": 7, "bed": "509-C", "patient_id": "patient_509C", "text": "我想要多一條毯子，有點冷",
+     "ttas_level": 4, "ttas_category": "生活協助", "route": "nurse", "timestamp": "2025/12/30 14:10"},
+]
+RESIDENT_QUEUE: List[dict] = [
+    {"id": 8, "bed": "510-C", "patient_id": "patient_510C", "text": "我胸口很悶，呼吸有點喘，請醫師來評估",
+     "ttas_level": 2, "ttas_category": "緊急醫療", "route": "resident", "timestamp": "2025/12/29 16:45"},
+]
+ATTENDING_QUEUE: List[dict] = [
+    {"id": 9, "bed": "503-B", "patient_id": "patient_503B", "text": "心臟痛痛的，我覺得很不舒服",
+     "ttas_level": 1, "ttas_category": "立即急症", "route": "attending", "timestamp": "2026/3/20 16:39"},
+]
 
 # ── 病患狀態訊息（醫聲相伴）──────────────────────────
 MESSAGES: List[dict] = [
     {"id": 1, "patient_id": "patient_503B", "bed": "503-B", "emotion": "焦慮",
      "text": "醫生，我今天早上的頭很暈，還有點想吐，請問這是怎麼回事啊？",
-     "timestamp": "2026/1/4 09:31", "replied": False, "reply_text": None},
+     "timestamp": "2026/1/4 09:31", "replied": True,
+     "reply_text": "您好，頭暈想吐可能與姿勢性低血壓或耳前庭有關，已安排今日會診，請先臥床休息。",
+     "ttas_level": 3, "ttas_category": "常規護理", "ttas_summary": "頭暈想吐，已知症狀",
+     "pushed_to_doctor": True, "audit_log": []},
+    {"id": 10, "patient_id": "patient_503B", "bed": "503-B", "emotion": "焦慮",
+     "text": "心臟痛痛的，我覺得很不舒服，胸口有點喘不過氣",
+     "timestamp": "2026/3/20 16:39", "replied": False, "reply_text": None,
+     "ttas_level": 1, "ttas_category": "立即急症", "ttas_summary": "胸痛合併呼吸困難，需立即評估",
+     "pushed_to_doctor": False, "audit_log": []},
     {"id": 2, "patient_id": "patient_503B", "bed": "503-B", "emotion": "開心",
      "text": "今天病情有好轉，感謝醫生！",
      "timestamp": "2026/1/4 13:19", "replied": True,
-     "reply_text": "很高興您的狀況有改善！請繼續好好休息，明天我們會再做一次檢查確認。"},
+     "reply_text": "很高興您的狀況有改善！請繼續好好休息，明天我們會再做一次檢查確認。",
+     "ttas_level": 4, "ttas_category": "生活協助", "ttas_summary": "正向回饋",
+     "pushed_to_doctor": True, "audit_log": []},
     {"id": 3, "patient_id": "patient_503B", "bed": "503-B", "emotion": "有問題",
      "text": "可以開始做復健了嗎？",
      "timestamp": "2026/1/3 12:15", "replied": True,
-     "reply_text": "根據您目前的恢復狀況，明天可以開始輕度復健，復健師會來說明注意事項。"},
+     "reply_text": "根據您目前的恢復狀況，明天可以開始輕度復健，復健師會來說明注意事項。",
+     "ttas_level": 3, "ttas_category": "常規護理", "ttas_summary": "詢問復健時機",
+     "pushed_to_doctor": True, "audit_log": []},
     {"id": 4, "patient_id": "patient_504A", "bed": "504-A", "emotion": "難過",
      "text": "發炎的情況有沒有好轉？我還是覺得很不舒服",
-     "timestamp": "2026/1/2 10:49", "replied": False, "reply_text": None},
+     "timestamp": "2026/1/2 10:49", "replied": False, "reply_text": None,
+     "ttas_level": 3, "ttas_category": "常規護理", "ttas_summary": "詢問發炎狀況，持續不適",
+     "pushed_to_doctor": False, "audit_log": []},
     {"id": 5, "patient_id": "patient_503B", "bed": "503-B", "emotion": "有問題",
      "text": "今天照完X光，結果什麼時候出來？",
      "timestamp": "2026/1/1 15:22", "replied": True,
-     "reply_text": "X光結果明天上午會出來，我會在巡房時跟您詳細說明。"},
+     "reply_text": "X光結果明天上午會出來，我會在巡房時跟您詳細說明。",
+     "ttas_level": 4, "ttas_category": "生活協助", "ttas_summary": "詢問檢查結果時間",
+     "pushed_to_doctor": True, "audit_log": []},
+    # 510-C 林俊宏（L2 緊急醫療 → 住院醫師）
+    {"id": 11, "patient_id": "patient_510C", "bed": "510-C", "emotion": "難過",
+     "text": "我胸口很悶，呼吸有點喘，請醫師來評估",
+     "timestamp": "2025/12/29 16:45", "replied": False, "reply_text": None,
+     "ttas_level": 2, "ttas_category": "緊急醫療", "ttas_summary": "胸悶呼吸不順，需醫師評估",
+     "pushed_to_doctor": True, "audit_log": []},
 ]
 
 # ── 待回覆病患清單（醫生端）─────────────────────────
+_CT_503B = {"attending": {"id": "doctor_004", "name": "王主治醫師", "dept": "內科"},
+            "resident":  {"id": "doctor_001", "name": "林醫師",     "dept": "內科"},
+            "nurse":     {"id": "nurse_001",  "name": "李護理師"}}
+_CT_510C = {"attending": {"id": "doctor_004", "name": "王主治醫師", "dept": "內科"},
+            "resident":  {"id": "doctor_001", "name": "林醫師",     "dept": "內科"},
+            "nurse":     {"id": "nurse_001",  "name": "李護理師"}}
+_CT_504A = {"attending": {"id": "doctor_004", "name": "王主治醫師", "dept": "內科"},
+            "resident":  {"id": "doctor_001", "name": "林醫師",     "dept": "內科"},
+            "nurse":     {"id": "nurse_001",  "name": "李護理師"}}
+_CT_506B = {"attending": {"id": "doctor_002", "name": "陳醫師",     "dept": "外科"},
+            "resident":  {"id": "doctor_002", "name": "陳醫師",     "dept": "外科"},
+            "nurse":     {"id": "nurse_002",  "name": "王護理師"}}
+_CT_509C = {"attending": {"id": "doctor_003", "name": "李醫師",     "dept": "骨科"},
+            "resident":  {"id": "doctor_003", "name": "李醫師",     "dept": "骨科"},
+            "nurse":     {"id": "nurse_001",  "name": "李護理師"}}
+
 PENDING_PATIENTS = [
-    {"bed": "503-B", "patient_name": "王小明", "latest_emotion": "焦慮", "unread": 1, "hospital": "台北總院", "timestamp": "2026/1/4 09:31", "star_color": "red"},
-    {"bed": "504-A", "patient_name": "陳美玲", "latest_emotion": "難過", "unread": 1, "hospital": "台北總院", "timestamp": "2026/1/2 10:49", "star_color": "yellow"},
-    {"bed": "506-B", "patient_name": "李志強", "latest_emotion": "有問題", "unread": 2, "hospital": "台中分院", "timestamp": "2026/1/1 08:20", "star_color": "none"},
-    {"bed": "509-C", "patient_name": "黃淑芬", "latest_emotion": "焦慮",  "unread": 1, "hospital": "高雄分院", "timestamp": "2025/12/30 14:10", "star_color": "none"},
-    {"bed": "510-C", "patient_name": "林俊宏", "latest_emotion": "難過",  "unread": 1, "hospital": "台北總院", "timestamp": "2025/12/29 16:45", "star_color": "gray"},
+    # L1 → 主治醫師（王主治醫師 doctor_004）
+    {"bed": "503-B", "patient_name": "王小明",  "latest_emotion": "焦慮",   "unread": 1, "hospital": "台北總院", "timestamp": "2026/3/20 16:39",  "latest_ttas_level": 1, "latest_message": "心臟痛痛的，我覺得很不舒服，胸口有點喘不過氣", "care_team": _CT_503B},
+    # L2 → 住院醫師（林醫師 doctor_001）
+    {"bed": "510-C", "patient_name": "林俊宏",  "latest_emotion": "難過",   "unread": 1, "hospital": "台北總院", "timestamp": "2025/12/29 16:45", "latest_ttas_level": 2, "latest_message": "我胸口很悶，呼吸有點喘，請醫師來評估",         "care_team": _CT_510C},
+    # L3 → 護理師
+    {"bed": "504-A", "patient_name": "陳美玲",  "latest_emotion": "難過",   "unread": 1, "hospital": "台北總院", "timestamp": "2026/1/2 10:49",  "latest_ttas_level": 3, "latest_message": "發炎的情況有沒有好轉？我還是覺得很不舒服",     "care_team": _CT_504A},
+    {"bed": "506-B", "patient_name": "李志強",  "latest_emotion": "有問題", "unread": 2, "hospital": "台中分院", "timestamp": "2026/1/1 08:20",  "latest_ttas_level": 3, "latest_message": "換藥時間到了，護理師可以來幫我換嗎？",         "care_team": _CT_506B},
+    # L4 → 護理師
+    {"bed": "509-C", "patient_name": "黃淑芬",  "latest_emotion": "焦慮",   "unread": 1, "hospital": "高雄分院", "timestamp": "2025/12/30 14:10", "latest_ttas_level": 4, "latest_message": "我想要多一條毯子，有點冷",                     "care_team": _CT_509C},
 ]
 DONE_PATIENTS = [
-    {"bed": "503-A", "patient_name": "趙雅婷", "latest_emotion": "開心", "unread": 0, "hospital": "台北總院", "timestamp": "2026/1/3 10:00", "star_color": "none"},
-    {"bed": "506-C", "patient_name": "吳建志", "latest_emotion": "開心", "unread": 0, "hospital": "台中分院", "timestamp": "2026/1/1 11:30", "star_color": "none"},
+    {"bed": "503-A", "patient_name": "趙雅婷", "latest_emotion": "開心", "unread": 0, "hospital": "台北總院", "timestamp": "2026/1/3 10:00"},
+    {"bed": "506-C", "patient_name": "吳建志", "latest_emotion": "開心", "unread": 0, "hospital": "台中分院", "timestamp": "2026/1/1 11:30"},
 ]
 
 # ── 地圖景點（任意視界）──────────────────────────────
@@ -200,6 +294,9 @@ CHAT_MESSAGES: List[dict] = [
         "read": False,
     },
 ]
+
+# ── 醫師預計回覆時間通知 ────────────────────────────────
+ETA_NOTICES: List[dict] = []
 
 # ── 病患心願清單 ───────────────────────────────────────
 WISHLISTS: list = [
