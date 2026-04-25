@@ -16,6 +16,9 @@ __pycache__/
 # Claude Code 工作樹備份
 .claude/worktrees/
 
+# Git worktrees
+.worktrees/
+
 # OS 暫存
 .DS_Store
 Thumbs.db
