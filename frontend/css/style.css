@@ -553,9 +553,9 @@ body {
 }
 
 .role-cards {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 220px);
   gap: 20px;
-  flex-wrap: wrap;
   justify-content: center;
   position: relative;
   z-index: 2;
@@ -563,8 +563,22 @@ body {
   margin: 0 auto;
 }
 
+/* 平板直式 / 手機：2×2 */
+@media (max-width: 1000px) {
+  .role-cards {
+    grid-template-columns: repeat(2, minmax(150px, 220px));
+  }
+}
+
+/* 手機小螢幕：單欄 */
+@media (max-width: 480px) {
+  .role-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
 .role-card {
-  width: 220px;
+  width: 100%;
   min-height: 240px;
   padding: 24px 20px 20px;
   border-radius: var(--r-lg);
@@ -663,10 +677,11 @@ body {
   color: #fff;
   margin-right: 6px;
 }
-.ttas-badge.l1 { background: #e53935; }
-.ttas-badge.l2 { background: #ff6f00; }
-.ttas-badge.l3 { background: #ffc107; color:#555; }
-.ttas-badge.l4 { background: #9e9e9e; }
+.ttas-badge.l1 { background: #b71c1c; }
+.ttas-badge.l2 { background: #e53935; }
+.ttas-badge.l3 { background: #ff6f00; }
+.ttas-badge.l4 { background: #ffc107; color:#555; }
+.ttas-badge.l5 { background: #9e9e9e; }
 
 .role-icon {
   font-size: 3rem;
@@ -800,7 +815,8 @@ body {
 ═══════════════════════════════════════════════════════ */
 #screen-login,
 #screen-doctor-login,
-#screen-crowd-login {
+#screen-crowd-login,
+#screen-nurse-login {
   gap: 8px;
   padding-top: var(--topbar-h);
   justify-content: center;
@@ -1018,6 +1034,7 @@ body {
   gap: 10px;
   flex: 1;
   min-height: 0;
+  width: 100%;
 }
 
 /* ① 引導說明條 */
@@ -1042,6 +1059,7 @@ body {
   gap: 14px;
   flex: 1;
   min-height: 0;
+  width: 100%;
 }
 
 /* ③ 面板欄（含標頭 + 內容） */
@@ -1096,6 +1114,14 @@ body {
 .close-stream-btn:hover {
   background: rgba(255,80,80,0.35);
   color: #fff;
+}
+/* 平板觸控：加大按鈕 */
+@media (max-width: 1024px) {
+  .close-stream-btn {
+    padding: 0.4em 1.1em;
+    font-size: 0.9em;
+    min-height: 38px;
+  }
 }
 
 .video-panel {
@@ -1310,8 +1336,9 @@ body {
 .video-controls-bar {
   display: flex;
   justify-content: center;
-  gap: 10px;
-  padding: 8px 0 2px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 4px 2px;
   flex-shrink: 0;
 }
 
@@ -1339,6 +1366,25 @@ body {
   background: rgba(255, 255, 255, 0.15);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.vc-btn.like {
+  background: rgba(255, 248, 225, 0.95);
+  color: #e67e22;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  font-weight: 800;
+}
+
+.vc-btn.like.liked {
+  background: rgba(245, 158, 11, 0.9);
+  color: white;
+}
+
+.vc-btn.feedback {
+  background: rgba(255, 241, 242, 0.95);
+  color: #e74c3c;
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  font-weight: 800;
 }
 
 .vc-btn:hover {
@@ -1661,8 +1707,8 @@ body {
 .emotion-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  padding: 16px;
+  gap: 8px;
+  padding: 10px;
   flex: 1;
 }
 
@@ -1671,12 +1717,12 @@ body {
   border-radius: var(--r-sm);
   background: #f8fbff;
   cursor: pointer;
-  padding: 16px 8px;
+  padding: 8px 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 4px;
   transition: all 0.2s var(--ease);
   font-family: inherit;
   flex: 1;
@@ -1696,12 +1742,12 @@ body {
 }
 
 .emotion-emoji {
-  font-size: 3rem;
+  font-size: 2rem;
   line-height: 1;
 }
 
 .emotion-label {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 800;
   color: var(--text-dark);
 }
@@ -2982,19 +3028,19 @@ body {
 
 /* ── 大平板 / 筆電小螢幕 (≤ 1024px) ───────────── */
 @media (max-width: 1024px) {
-  /* 任意視界：地圖欄縮窄 */
-  .anyview-col:first-child { flex: 1.1; }
+  /* 任意視界：地圖欄縮窄，影像欄最高不超過 55vh */
+  .anyview-col:first-child { flex: 1.1; max-height: 55vh; }
   /* 醫生端：稍縮間距 */
   .doctor-layout { padding: 14px max(14px, 2%) 0; }
 }
 
 /* ── 平板 (≤ 900px) ──────────────────────────────── */
 @media (max-width: 900px) {
-  /* ── 任意視界：上下堆疊 ── */
+  /* ── 任意視界：上下堆疊，用 flex 比例撐滿可用高度 ── */
   .anyview-layout { flex-direction: column; }
-  .anyview-main   { flex-direction: column; }
-  .anyview-col    { flex: 0 0 auto; height: 280px; }
-  .anyview-col:first-child { flex: 0 0 auto; height: 300px; }
+  .anyview-main   { flex-direction: column; flex: 1; min-height: 0; }
+  .anyview-col    { flex: 1; height: auto; min-height: 160px; }
+  .anyview-col:first-child { flex: 0 0 auto; height: auto; min-height: 200px; max-height: min(42vh, 300px); }
 
   /* ── 病患端：上下堆疊 ── */
   .medical-layout { flex-direction: column; gap: 10px; }
@@ -3018,8 +3064,8 @@ body {
   .topbar-label { font-size: 0.76rem; }
 
   /* ── 任意視界 ── */
-  .anyview-col        { height: 240px; }
-  .anyview-col:first-child { height: 260px; }
+  .anyview-col        { min-height: 140px; }
+  .anyview-col:first-child { min-height: 180px; max-height: min(40vh, 280px); }
   #screen-anyview     { padding: var(--topbar-h) 10px 10px; }
 
   /* ── 病患首頁：功能卡縮間距 ── */
@@ -3057,9 +3103,9 @@ body {
 
 /* ── 手機橫式 / 大手機 (≤ 600px) ───────────────── */
 @media (max-width: 600px) {
-  /* ── 角色選擇：垂直排列 ── */
-  .role-cards { flex-direction: column; align-items: center; gap: 12px; }
-  .role-card  { width: 88vw; max-width: 320px; padding: 20px 16px; }
+  /* ── 角色選擇：≤600px 單欄 ── */
+  .role-cards { grid-template-columns: 1fr; gap: 12px; max-width: 320px; }
+  .role-card  { width: 100%; padding: 20px 16px; }
 
   /* ── 病患首頁：功能卡單列 ── */
   .func-cards { grid-template-columns: 1fr; gap: 12px; }
@@ -3069,9 +3115,9 @@ body {
   .func-card-name { font-size: 1.2rem; margin-bottom: 4px; }
   .func-card-desc { font-size: 0.82rem; max-width: 100%; }
 
-  /* ── 任意視界：更矮 ── */
-  .anyview-col        { height: 200px; }
-  .anyview-col:first-child { height: 220px; }
+  /* ── 任意視界：min-height 保底，高度由 flex 決定 ── */
+  .anyview-col        { min-height: 120px; }
+  .anyview-col:first-child { min-height: 140px; }
 
   /* ── 待辦清單：篩選器換行 ── */
   .todo-list-header   { flex-wrap: wrap; gap: 6px; padding: 0.6em 0.9em; }
@@ -3156,10 +3202,11 @@ body {
 
   /* ── 任意視界 ── */
   #screen-anyview { padding: var(--topbar-h) 8px 8px; }
-  .anyview-col        { height: 180px; }
-  .anyview-col:first-child { height: 200px; }
+  .anyview-col        { min-height: 110px; }
+  .anyview-col:first-child { min-height: 130px; }
   .anyview-guide  { gap: 4px; padding: 0.3em 0.6em; }
   .btn-ai, .btn-mute { font-size: 0.75em; padding: 5px 9px; }
+  .vc-btn { padding: 6px 12px; font-size: 0.78rem; }
 
   /* ── 群眾端 ── */
   .crowd-layout-new   { padding: 8px; gap: 8px; }
@@ -3186,6 +3233,37 @@ body {
   .func-card      { padding: 12px 10px; }
   .emotion-btn    { padding: 10px 4px; }
   .crowd-layout-new { padding: 6px; gap: 6px; }
+}
+
+/* ── 手機 / 平板橫式（高度 ≤ 500px） ─────────────── */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* 任意視界：恢復雙欄並排，讓 guide 保持在上方 */
+  .anyview-layout { flex-direction: column; }
+  .anyview-main   { flex-direction: row; flex: 1; min-height: 0; }
+  .anyview-col    { flex: 1; height: auto; min-height: 0; }
+  .anyview-col:first-child { flex: 1.2; height: auto; }
+  .anyview-guide  { gap: 4px; padding: 0.25em 0.5em; font-size: 0.68em; }
+
+  /* 病患端 醫聲相伴：上下堆疊且高度壓縮 */
+  .medical-layout { flex-direction: column; gap: 6px; }
+  .history-panel  { max-height: 120px; }
+  .emotion-grid   { gap: 6px; padding: 6px; }
+  .emotion-btn    { padding: 8px 4px; min-height: 56px; }
+
+  /* 群眾端：上下堆疊，各區塊縮高 */
+  .crowd-layout-new { flex-direction: column; overflow-y: auto; padding: 6px; gap: 6px; }
+  .crowd-achieve-panel { flex: 0 0 auto; max-height: 140px; overflow-y: auto; }
+  .crowd-tasks-panel   { flex: 1; min-height: 160px; }
+
+  /* 醫生端回覆：左側壓縮 */
+  .reply-layout { flex-direction: column; overflow-y: auto; padding: 8px; gap: 8px; }
+  .rp-history-section { max-height: 100px; }
+
+  /* 影像控制按鈕列縮小 */
+  .vc-btn { padding: 5px 10px; font-size: 0.75rem; }
+
+  /* 通知面板橫式全高 */
+  .notif-panel { width: min(340px, 100vw); }
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -4125,8 +4203,14 @@ body {
   display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
 }
 .notif-item .ni-stars { color: #f5a623; font-size: 0.9rem; }
-.notif-item .ni-name  { font-weight: 700; }
+.notif-item .ni-name  { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notif-item .ni-time  { font-size: 0.68rem; color: #aaa; margin-left: auto; }
+.notif-item .ni-del   {
+  margin-left: 6px; background: none; border: none;
+  color: #ccc; font-size: 0.72rem; cursor: pointer;
+  padding: 2px 5px; border-radius: 4px; flex-shrink: 0; line-height: 1;
+}
+.notif-item .ni-del:hover { color: #e74c3c; background: #fff0f0; }
 .notif-item .ni-msg   { color: #555; line-height: 1.5; margin-left: 4px; }
 .notif-item .ni-unread-dot {
   width: 8px; height: 8px; border-radius: 50%;
@@ -4243,4 +4327,225 @@ body {
 #wishPlaceInput:focus,
 #wishDescInput:focus {
   box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.18);
+}
+
+/* ═══════════════════════════════════════════════════════
+   RWD 補充修正 — 各裝置版面額外修正
+═══════════════════════════════════════════════════════ */
+
+/* ── 桌機大螢幕 (≥ 1280px) 版面上限 ─────────────── */
+@media (min-width: 1280px) {
+  /* 群眾端：左右成就+任務版面不超寬 */
+  .crowd-layout-new    { max-width: 1400px; margin-left: auto; margin-right: auto; }
+  /* 任意視界：引導+主內容不超寬 */
+  .anyview-layout      { max-width: 1600px; margin-left: auto; margin-right: auto; }
+  /* 病患首頁功能卡維持最大寬度 */
+  .func-cards          { max-width: 920px; }
+}
+
+/* ── 平板（≤ 768px）醫生/護理師 header 統計列 ───── */
+@media (max-width: 768px) {
+  /* header card 改直排，統計藥丸用 grid 整齊排列 */
+  .doctor-header-card  { flex-direction: column; align-items: stretch; gap: 0.7em; }
+  .doctor-stat-row     { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5em; width: 100%; }
+  .doctor-stat-pill    { min-width: 0; }
+  /* 平板以下：醫生類型徽章收起，避免 topbar 擠爆 */
+  #doctorTypeBadge     { display: none !important; }
+}
+
+/* 平板直式 + 大字體：topbar 中間 label 視覺會壓到按鈕，隱藏 */
+@media (max-width: 1000px) {
+  [data-font-size="large"] .topbar-center { display: none; }
+  [data-font-size="large"] .topbar > .topbar-label { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* ── 手機（≤ 600px）：字體按鈕精簡 + 醫生徽章隱藏 ── */
+@media (max-width: 600px) {
+  /* 醫生端 topbar：類型徽章（🩻 住院醫師）佔用空間太多，隱藏 */
+  #doctorTypeBadge     { display: none !important; }
+
+  /* ━━ 字體切換按鈕：精簡為「字小/中/大」━━
+     問題根源：JS 注入的按鈕文字「🔍點擊切換字體：小」在 26px 基底下
+     寬度約 268px，塞進 topbar-right 後與其他按鈕共擠導致 topbar 溢出。
+     解法：隱藏 JS 設定的長標籤，改用 CSS ::after 顯示精簡文字。        */
+  .font-size-btn       { padding: 0.22em 0.52em; }
+  .font-size-label     { font-size: 0; width: 0; overflow: hidden; padding: 0; margin: 0; }
+  .font-size-btn::after {
+    content: '字';
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: var(--blue-dark);
+    white-space: nowrap;
+  }
+  /* 依 html[data-font-size] 屬性顯示目前尺寸 */
+  html[data-font-size="small"]  .font-size-btn::after { content: '字小'; }
+  html[data-font-size="medium"] .font-size-btn::after { content: '字中'; }
+  html[data-font-size="large"]  .font-size-btn::after { content: '字大'; }
+}
+
+/* ── 小手機（≤ 430px）：繁忙 topbar 隱藏左側標籤 ── */
+@media (max-width: 430px) {
+  /* 字體按鈕精簡後各 topbar-right 共約 220-290px，
+     加上左側 topbar-label 仍會超出 374px（390px 手機去除 padding）。
+     以下畫面左側 label 拿掉後空間剛好夠用：                            */
+  #screen-patient-home .topbar > .topbar-label,
+  #screen-medical      .topbar > .topbar-label,
+  #screen-doctor       .topbar > .topbar-label,
+  #screen-doctor-reply .topbar > .topbar-label,
+  #screen-crowd        .topbar > .topbar-label { display: none; }
+
+  /* 病患首頁：topbar 置中標題（absolute）也拿掉，
+     否則會視覺覆蓋右側字體/通知/返回按鈕 */
+  #screen-patient-home .topbar-center         { display: none; }
+}
+
+/* ── 手機直式（≤ 480px）補強 ─────────────────────── */
+@media (max-width: 480px) {
+  /* 任意視界 topbar：label 在此尺寸與返回按鈕+圖示共擠，隱藏 label */
+  #screen-anyview .topbar > .topbar-label { display: none; }
+
+  /* 任意視界引導欄：再縮字體，分隔符隱藏 */
+  .anyview-guide       { font-size: 0.6em; padding: 0.28em 0.65em; gap: 0.25em; }
+  .ag-sep              { display: none; }
+
+  /* 護理師端統計藥丸：phone 螢幕改 2×2 grid */
+  #screen-nurse .doctor-stat-row { grid-template-columns: 1fr 1fr; }
+
+  /* 醫生端統計藥丸：3 顆改單行 1×3 */
+  #screen-doctor .doctor-stat-row { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ── 超小手機（≤ 360px）補強 ────────────────────── */
+@media (max-width: 360px) {
+  /* 情緒選擇 4 欄 → 2×2：每格在 360px 只有 ~66px，改 2 欄更舒適 */
+  .emotion-grid        { grid-template-columns: 1fr 1fr; }
+  .emotion-btn         { min-height: 80px; }
+
+  /* 任意視界引導：三段文字只顯示前兩段（最後一 span 隱藏） */
+  .anyview-guide > div > span:last-of-type { display: none; }
+
+  /* 護理師/醫生統計藥丸 360px 一律 2×2 */
+  .doctor-stat-row     { grid-template-columns: 1fr 1fr; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   固定像素值全面改為 clamp / vh / vw 動態版
+   讓每個元素在任何螢幕尺寸都能自然縮放，不再突兀
+═══════════════════════════════════════════════════════ */
+
+/* ── 角色選擇卡片 ────────────────────────────────── */
+/* width: 220px 在小平板（768-900px）4 張並排會擠 */
+.role-card {
+  width: clamp(160px, 44vw, 220px);        /* 手機→平板 流暢縮放 */
+  min-height: clamp(180px, 28vh, 240px);   /* 短螢幕自動壓縮 */
+  padding: clamp(16px, 2.8vh, 24px) clamp(14px, 2.2vw, 20px) clamp(14px, 2.2vh, 20px);
+}
+/* ≤600px 已有 88vw 全寬規則，優先順序由選擇器決定 → 加 !important 確保手機全寬 */
+@media (max-width: 600px) {
+  .role-card { width: min(88vw, 320px) !important; }
+}
+
+/* ── 病患首頁功能卡 ──────────────────────────────── */
+/* 基礎 padding: 28px 20px 在平板縮到 768px 還是偏大 */
+.func-card {
+  padding: clamp(16px, 3.5vw, 28px) clamp(14px, 2.5vw, 20px);
+  min-height: clamp(110px, 22vh, 200px);
+}
+
+/* ── 醫聲相伴：留言紀錄面板高度 ─────────────────── */
+/* 固定 max-height px 在不同螢幕比例差很多，改為 vh */
+@media (max-width: 900px) {
+  .history-panel { max-height: clamp(140px, 26vh, 220px); }
+}
+@media (max-width: 768px) {
+  .history-panel { max-height: clamp(120px, 23vh, 190px); }
+}
+@media (max-width: 480px) {
+  .history-panel { max-height: clamp(100px, 20vh, 165px); }
+}
+
+/* ── 群眾端任務面板最小高度 ─────────────────────── */
+/* min-height: 300px 在 768px 以下手機幾乎佔滿畫面 */
+@media (max-width: 768px) {
+  .crowd-tasks-panel { min-height: clamp(160px, 38vh, 300px); }
+}
+
+/* ── 醫生回覆：病患頭像 ──────────────────────────── */
+/* 56px 在小手機佔比例過大，改 clamp */
+.rp-avatar {
+  width:  clamp(40px, 5.8vw, 56px);
+  height: clamp(40px, 5.8vw, 56px);
+}
+
+/* ── 病患端語音輸入按鈕 ──────────────────────────── */
+/* 42px 固定值，已有 ≤480px 改 36px，用 clamp 連續縮放 */
+.voice-input-btn {
+  width:  clamp(34px, 4.2vw, 42px);
+  height: clamp(34px, 4.2vw, 42px);
+}
+
+/* ── 留言紀錄 / 醫生回覆 歷史 最大高度 ──────────── */
+@media (max-width: 768px) {
+  .rp-history-section { max-height: clamp(130px, 22vh, 200px); }
+}
+@media (max-width: 480px) {
+  .rp-history-section { max-height: clamp(100px, 16vh, 145px); }
+}
+
+/* ── Toast 提示浮層位置 ──────────────────────────── */
+/* bottom: 28px 在小螢幕可能被底部導航遮住 */
+.toast { bottom: clamp(14px, 3.5vh, 32px); }
+
+/* ── 缺失景點彈出視窗 ────────────────────────────── */
+.missing-popup { bottom: clamp(12px, 2.8vh, 28px); }
+
+/* ── 關閉按鈕觸碰目標（modal-close / missing-close）── */
+.modal-close {
+  width:  clamp(26px, 3.5vw, 32px);
+  height: clamp(26px, 3.5vw, 32px);
+  top:   clamp(10px, 1.8vh, 16px);
+  right: clamp(10px, 1.8vw, 16px);
+}
+
+/* ── 護理師統計卡最小寬度 ───────────────────────── */
+/* min-width: 80px 4 欄同時出現在小手機會卡版面 */
+.nurse-stat-card { min-width: clamp(60px, 16vw, 100px); }
+
+/* ══ 眼動練習按鈕（topbar 內） ══════════════════════
+   在小螢幕 topbar 空間不足時，縮短文字或隱藏         */
+@media (max-width: 600px) {
+  /* 只留圖示，隱藏「眼動練習」文字 */
+  #screen-anyview  .topbar .emdr-launch-btn > span,
+  #screen-medical  .topbar .emdr-launch-btn > span { display: none; }
+}
+
+/* ══ EMDR 全螢幕覆層響應式 ══════════════════════════ */
+@media (max-width: 600px) {
+  #emdrOverlay { gap: 8px; padding: 10px 12px; }
+  #emdrOverlay > div:first-child > div:first-child { font-size: 1.2rem; }
+  #emdrTrack { height: min(36vh, 240px); }
+}
+@media (max-width: 480px) {
+  #emdrOverlay { gap: 6px; padding: 8px 10px; }
+  #emdrOverlay > div:first-child > div:first-child { font-size: 1rem; }
+  #emdrOverlay > div:first-child > div:last-child  { display: none; } /* 隱藏英文副標 */
+  #emdrTrack   { height: min(30vh, 200px); }
+  .emdr-ctrl-btn { font-size: 0.72rem; padding: 4px 8px; }
+}
+@media (max-width: 360px) {
+  /* 超小手機：說明文字縮短 */
+  #emdrOverlay > div:nth-child(2) { font-size: 0.74rem; padding: 6px 10px; }
+  #emdrTrack { height: min(28vh, 180px); }
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  /* 橫式手機：EMDR 壓縮上下間距，軌道高度減小 */
+  #emdrOverlay { gap: 4px; padding: 6px 12px; }
+  #emdrOverlay > div:first-child { display: none; } /* 隱藏標題節省空間 */
+  #emdrOverlay > div:nth-child(2) { padding: 4px 12px; font-size: 0.76rem; }
+  #emdrTrack { height: min(40vh, 180px); }
+}
+
+/* ══ 送出結果浮動通知（ttasSendResult）════════════════ */
+@media (max-width: 480px) {
+  #ttasSendResult { top: 52px; font-size: 0.8rem; padding: 10px 12px; }
 }

@@ -1,5 +1,60 @@
 // frontend/js/app.js — 前端主邏輯與三端互動控制
 
+// ══ WebSocket 即時推播 ════════════════════════════
+let _ws = null;
+let _wsReconnectTimer = null;
+
+function connectWS(userId) {
+  if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) return;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  _ws = new WebSocket(`${proto}//${location.host}/ws/${userId}`);
+
+  _ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      _handleWSEvent(msg);
+    } catch {}
+  };
+
+  _ws.onclose = () => {
+    // 斷線後 3 秒自動重連
+    clearTimeout(_wsReconnectTimer);
+    _wsReconnectTimer = setTimeout(() => {
+      if (state.currentUser?.id) connectWS(state.currentUser.id);
+    }, 3000);
+  };
+}
+
+function _handleWSEvent(msg) {
+  const role = state.currentUser?.role;
+  switch (msg.event) {
+    case 'new_message':
+      // 有新病患訊息 → 醫護端刷新
+      if (role === 'nurse') loadNurseMessages();
+      if (role === 'doctor') loadDoctorList();
+      break;
+    case 'new_reply':
+      // 有醫護回覆 → 病患端刷新通知
+      if (role === 'patient') {
+        loadNotifications(state.currentUser.id);
+        loadPatientMessages();
+        showToast('💬 醫護人員已回覆您的訊息！');
+      }
+      break;
+    case 'eta_notice':
+      // 有 ETA 通知 → 病患端刷新通知
+      if (role === 'patient') {
+        loadNotifications(state.currentUser.id);
+        showToast(`🔔 ${msg.doctor_name}已收到您的訊息，將盡快為您處理`);
+      }
+      break;
+    case 'pending_updated':
+      // 待辦更新 → 醫師端刷新
+      if (role === 'doctor') loadDoctorList();
+      break;
+  }
+}
+
 // ── 麥克風 SVG 圖示常數（統一使用） ─────────────────
 const _MIC = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px;flex-shrink:0"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>`;
 
@@ -53,6 +108,43 @@ if (savedSize && FONT_SIZES.includes(savedSize)) {
   });
 }
 
+// ── DEMO 快速分流預設結果（跳過 AI 呼叫）────────────
+let _demoTriageResult = null;
+
+function setDemoL2() {
+  document.getElementById('patientMsg').value = '醫生我骨盆很痛，呼吸也有點喘';
+  _demoTriageResult = {
+    ttas_level: 2,
+    ttas_category: "緊急醫療",
+    ttas_summary: "骨盆劇痛合併呼吸困難，疑似術後急性併發症",
+    route: "attending",
+    nrs_estimated: 8,
+    bsrs_estimated: 11,
+    pcs_level: 1,
+    urgency_flags: ["pain_attention", "bsrs_attention"],
+    self_harm_detected: false,
+    follow_up: "",
+    ttas_reasoning: "骨盆疼痛合併呼吸喘，屬 L2 危急。NRS 8 重度疼痛，BSRS 11 心理壓力明顯，PCS L1 需主治醫師立即評估，排除肺栓塞等術後急性併發症。"
+  };
+}
+
+function setDemoL5() {
+  document.getElementById('patientMsg').value = '護理師，我今天想吃什麼比較好？';
+  _demoTriageResult = {
+    ttas_level: 5,
+    ttas_category: "生活協助",
+    ttas_summary: "術後飲食詢問，非緊急",
+    route: "nurse",
+    nrs_estimated: 1,
+    bsrs_estimated: 3,
+    pcs_level: 4,
+    urgency_flags: [],
+    self_harm_detected: false,
+    follow_up: "",
+    ttas_reasoning: "飲食詢問屬 L5 非緊急生活協助。NRS 1 無明顯疼痛，BSRS 3 情緒穩定，PCS L4 護理師提供飲食衛教即可，無需醫師介入。"
+  };
+}
+
 // ── 全域狀態 ──────────────────────────────────────
 const state = {
   currentUser: null,
@@ -88,14 +180,14 @@ function showSkeleton(containerId, count = 3) {
     .join("");
 }
 
-// ── 角色選擇 ──────────────────────────────────────
+// ── 角色選擇（直接自動登入，無需登入畫面）──────────
 document.querySelectorAll(".role-card").forEach((card) => {
   card.addEventListener("click", () => {
     const role = card.dataset.role;
-    if (role === "patient") goTo("screen-login");
-    else if (role === "doctor") goTo("screen-doctor-login");
-    else if (role === "crowd") goTo("screen-crowd-login");
-    else if (role === "nurse") goTo("screen-nurse-login");
+    if (role === "patient") autoLogin("patient_503B", "123", "503-B");
+    else if (role === "doctor") autoLogin("doctor_004", "123");
+    else if (role === "crowd") autoLogin("crowd_001", "123");
+    else if (role === "nurse") autoLogin("nurse_001", "123");
   });
 });
 
@@ -138,108 +230,60 @@ document.querySelectorAll(".avatar-btn").forEach((btn) => {
   });
 });
 
-// ── 登入（病患）──────────────────────────────────
-document.getElementById("loginBtn")?.addEventListener("click", async () => {
-  const userId = document.getElementById("userId").value.trim() || "patient_503B";
-  const password = document.getElementById("password").value || "123";
-  const bed = document.getElementById("bedInput").value.trim();
+// ── 自動登入（統一入口）──────────────────────────────
+async function autoLogin(userId, password, bed = "") {
   try {
     const data = await api.login(userId, password, bed);
-    state.currentUser = data.user;
-    goTo("screen-patient-home");
-
-    // 更新病患專屬資訊與歡迎語
-    const userBed = data.user.bed || bed || "503-B";
-    document.getElementById("patientBedTag").textContent = userBed + "號病房";
-    const welcomeNameEl = document.getElementById("welcomeName");
-    if (welcomeNameEl) {
-      const fullName = data.user.name || '';
-      // 格式化：王小明 → 王○明
-      const masked = fullName.length >= 2
-        ? fullName[0] + '○' + fullName.slice(2)
-        : fullName || '貴賓';
-      welcomeNameEl.textContent = masked;
-    }
-
-    const dateEl = document.getElementById("currentDateDisplay");
-    if (dateEl) {
-      const d = new Date();
-      dateEl.textContent = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
-    }
-  } catch {
-    showToast("⚠️ 帳號或密碼錯誤");
-  }
-});
-
-// ── 醫師登入：身分由帳號決定 ──────────────────────
-
-// ── 登入（醫生）──────────────────────────────────
-document.getElementById("doctorLoginBtn")?.addEventListener("click", async () => {
-  const userId = document.getElementById("doctorUserId").value.trim() || "doctor_001";
-  const password = document.getElementById("doctorPassword").value || "123";
-  try {
-    const data = await api.login(userId, password);
     const u = data.user;
     state.currentUser = u;
-    // 由帳號決定身分，更新 topbar 標籤
-    _doctorType = u.doctor_type || 'resident';
-    const badge = document.getElementById('doctorTypeBadge');
-    if (badge) {
-      const isResident = _doctorType === 'resident';
-      badge.textContent = isResident ? '🩻 住院醫師' : '👨‍⚕️ 主治醫師';
-      badge.style.background = isResident ? '#2471a3' : '#8e44ad';
+    connectWS(u.id);
+
+    if (u.role === "patient") {
+      const userBed = u.bed || bed || "503-B";
+      const bedTag = document.getElementById("patientBedTag");
+      if (bedTag) bedTag.textContent = userBed + "號病房";
+      const welcomeNameEl = document.getElementById("welcomeName");
+      if (welcomeNameEl) {
+        const fullName = u.name || '';
+        const masked = fullName.length >= 2 ? fullName[0] + '○' + fullName.slice(2) : fullName || '貴賓';
+        welcomeNameEl.textContent = masked;
+      }
+      const dateEl = document.getElementById("currentDateDisplay");
+      if (dateEl) {
+        const d = new Date();
+        dateEl.textContent = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+      }
+      goTo("screen-patient-home");
+
+    } else if (u.role === "doctor") {
+      _doctorType = u.doctor_type || 'resident';
+      const badge = document.getElementById('doctorTypeBadge');
+      if (badge) {
+        const isResident = _doctorType === 'resident';
+        badge.textContent = isResident ? '🩻 住院醫師' : '👨‍⚕️ 主治醫師';
+        badge.style.background = isResident ? '#2471a3' : '#8e44ad';
+      }
+      const welcomeEl = document.getElementById("doctorWelcomeText");
+      if (welcomeEl) {
+        const fullName = u.name || '醫師';
+        const masked = fullName.length >= 2 ? fullName[0] + '○' + fullName.slice(2) : fullName;
+        welcomeEl.textContent = `歡迎，${u.dept || ''}${masked} 醫師　|　今日待辦請求如下`;
+      }
+      await loadDoctorList();
+      goTo("screen-doctor");
+
+    } else if (u.role === "nurse") {
+      await loadNurseMessages();
+      goTo("screen-nurse");
+
+    } else if (u.role === "crowd") {
+      await loadCrowdData();
+      goTo("screen-crowd");
     }
-    // 更新醫生歡迎訊息
-    const welcomeEl = document.getElementById("doctorWelcomeText");
-    if (welcomeEl) {
-      const fullName = u.name || '醫師';
-      const masked = fullName.length >= 2
-        ? fullName[0] + '○' + fullName.slice(2)
-        : fullName;
-      const dept = u.dept || '';
-      welcomeEl.textContent = `歡迎，${dept}${masked} 醫師　|　今日待辦請求如下`;
-    }
-    await loadDoctorList();
-    goTo("screen-doctor");
   } catch {
-    showToast("⚠️ 帳號或密碼錯誤");
+    showToast("⚠️ 登入失敗，請稍後再試");
   }
-});
-
-// ── 登入（群眾）──────────────────────────────────
-document.getElementById("crowdLoginBtn")?.addEventListener("click", async () => {
-  const userId = document.getElementById("crowdUserId").value.trim() || "crowd_001";
-  const password = document.getElementById("crowdPassword").value || "123";
-  try {
-    const data = await api.login(userId, password);
-    state.currentUser = data.user;
-    await loadCrowdData();
-    goTo("screen-crowd");
-  } catch {
-    showToast("⚠️ 帳號或密碼錯誤");
-  }
-});
-
-
-// ── 登入（護理師）──────────────────────────────────
-document.getElementById("nurseLoginBtn")?.addEventListener("click", async () => {
-  const userId = document.getElementById("nurseUserId").value.trim() || "nurse_001";
-  const password = document.getElementById("nursePassword").value || "123";
-  try {
-    const data = await api.login(userId, password);
-    if (data.user.role !== "nurse") { showToast("⚠️ 此帳號非護理師角色"); return; }
-    state.currentUser = data.user;
-    await loadNurseMessages();
-    goTo("screen-nurse");
-  } catch {
-    showToast("⚠️ 帳號或密碼錯誤");
-  }
-});
-
-// ── 護理師端角色卡點擊 ──────────────────────────────
-document.querySelector('.role-card.nurse')?.addEventListener('click', () => {
-  goTo('screen-nurse-login');
-});
+}
 
 // ════════════════════════════════════════════════
 // 護理師端
@@ -269,6 +313,8 @@ function updateNurseStats() {
   const l1     = all.filter(m => m.ttas_level === 1).length;
   const l2     = all.filter(m => m.ttas_level === 2).length;
   const l3     = all.filter(m => m.ttas_level === 3).length;
+  const l4     = all.filter(m => m.ttas_level === 4).length;
+  const l5     = all.filter(m => m.ttas_level === 5).length;
   const unseen = all.filter(m => !m.nurse_seen).length;
   const setT = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
   setT('nurseStatTotalNum', total);
@@ -278,14 +324,16 @@ function updateNurseStats() {
   setT('nurseCountL1', l1);
   setT('nurseCountL2', l2);
   setT('nurseCountL3', l3);
+  setT('nurseCountL4', l4);
+  setT('nurseCountL5', l5);
   // 更新歡迎文字
   const name = state.currentUser?.name || '護理師';
   const wEl = document.getElementById('nurseWelcomeText');
   if (wEl) wEl.textContent = `歡迎，${name}｜今日待處理 ${total} 則`;
 }
 
-const LEVEL_ICON = { 1: '🔴', 2: '🟠', 3: '🟡', 4: '⚪' };
-const LEVEL_NAME = { 1: '立即急症', 2: '緊急醫療', 3: '常規護理', 4: '生活協助' };
+const LEVEL_ICON = { 1: '🔴', 2: '🟠', 3: '🟡', 4: '🟢', 5: '⚪' };
+const LEVEL_NAME = { 1: '復甦急救', 2: '危急', 3: '緊急', 4: '次緊急', 5: '非緊急' };
 const LEVEL_BG   = { 1: '#e53935', 2: '#ff6f00', 3: '#ffc107', 4: '#9e9e9e' };
 const LEVEL_COLOR= { 1: '#fff',    2: '#fff',    3: '#555',    4: '#fff' };
 
@@ -297,6 +345,7 @@ function renderNurseMsgs() {
   else if (_nurseFilter === '2') msgs = msgs.filter(m => m.ttas_level === 2);
   else if (_nurseFilter === '3') msgs = msgs.filter(m => m.ttas_level === 3);
   else if (_nurseFilter === '4') msgs = msgs.filter(m => m.ttas_level === 4);
+  else if (_nurseFilter === '5') msgs = msgs.filter(m => m.ttas_level === 5);
   else if (_nurseFilter === 'unseen') msgs = msgs.filter(m => !m.nurse_seen);
 
   if (msgs.length === 0) {
@@ -319,27 +368,92 @@ function renderNurseMsgs() {
         <strong style="font-size:.9rem">${escHtml(m.bed)}</strong>
         ${repliedBadge}${routeBadge}
       </div>
-      <div style="font-size:.92rem;color:#333;margin-bottom:6px;line-height:1.5">${escHtml(m.text)}</div>
-      <div style="font-size:.75rem;color:#aaa;margin-bottom:10px">${m.timestamp}${m.ttas_summary ? '｜' + escHtml(m.ttas_summary) : ''}</div>
+      <div style="font-size:.92rem;color:#333;margin-bottom:4px;line-height:1.5">${escHtml(m.text)}</div>
+      <div style="font-size:.75rem;color:#aaa;margin-bottom:6px">${m.timestamp}${m.ttas_summary ? '｜' + escHtml(m.ttas_summary) : ''}</div>
+      ${(m.nrs_estimated != null || m.bsrs_estimated != null) ? `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        ${m.nrs_estimated != null ? `<span style="font-size:.68rem;background:#fff3e0;color:#e65100;border:1px solid #ffb74d;padding:1px 6px;border-radius:6px">NRS ${m.nrs_estimated}/10</span>` : ''}
+        ${m.bsrs_estimated != null ? `<span style="font-size:.68rem;background:#f3e5f5;color:#6a1b9a;border:1px solid #ce93d8;padding:1px 6px;border-radius:6px">BSRS ${m.bsrs_estimated}/20</span>` : ''}
+        ${m.pcs_level != null ? `<span style="font-size:.68rem;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;padding:1px 6px;border-radius:6px">PCS L${m.pcs_level}</span>` : ''}
+        ${(m.urgency_flags||[]).includes('self_harm') || m.self_harm_detected ? `<span style="font-size:.68rem;background:#ffebee;color:#c62828;border:1px solid #ef9a9a;padding:1px 6px;border-radius:6px;font-weight:700">⚠️ 自傷意念</span>` : ''}
+        ${(m.urgency_flags||[]).includes('bsrs_attention') ? `<span style="font-size:.68rem;background:#fce4ec;color:#880e4f;border:1px solid #f48fb1;padding:1px 6px;border-radius:6px">心理關注</span>` : ''}
+        ${(m.urgency_flags||[]).includes('pain_attention') ? `<span style="font-size:.68rem;background:#fff8e1;color:#f57f17;border:1px solid #ffe082;padding:1px 6px;border-radius:6px">疼痛關注</span>` : ''}
+      </div>` : ''}
       ${m.replied
-        ? `<div style="font-size:.82rem;color:var(--green);padding:8px 12px;background:#f1f8f4;border-radius:8px;border-left:3px solid var(--green)">💬 ${escHtml(m.reply_text || '')}</div>`
-        : `<div class="eta-row" style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
-             <span style="font-size:.72rem;color:#888;font-weight:600;">預計回覆：</span>
-             ${['10分鐘內','30分鐘內','1小時內','2小時內','半天內'].map(v => {
-               const label = v.replace('鐘內','').replace('內','');
-               return `<button class="eta-btn" data-bed="${m.bed}" data-eta="${v}" data-role="nurse">${label}</button>`;
-             }).join('')}
+        ? `<div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
+             <div style="font-size:.82rem;color:var(--green);padding:8px 12px;background:#f1f8f4;border-radius:8px;border-left:3px solid var(--green);flex:1">💬 ${escHtml(m.reply_text || '')}</div>
+             <button onclick="event.stopPropagation();openNurseHistoryModal('${m.bed}')" style="margin-left:8px;padding:4px 10px;font-size:.68rem;border:1px solid #c5cae9;border-radius:8px;background:#f3f4ff;color:#3949ab;cursor:pointer;font-family:inherit;flex-shrink:0;font-weight:700">📋 歷史 + AI分流</button>
+           </div>`
+        : `<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:4px">
+             <button onclick="event.stopPropagation();openNurseHistoryModal('${m.bed}')" style="padding:4px 10px;font-size:.68rem;border:1px solid #c5cae9;border-radius:8px;background:#f3f4ff;color:#3949ab;cursor:pointer;font-family:inherit;font-weight:700">📋 歷史 + AI分流</button>
+             <button class="nurse-done-btn" data-msg-id="${m.id}" style="background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:8px;padding:5px 10px;font-size:.8rem;font-weight:700;cursor:pointer;white-space:nowrap">✅ 完成</button>
            </div>`
       }
     </div>`;
   }).join('');
 
+  // 已完成列表
+  const doneList = document.getElementById('nurseDoneList');
+  if (doneList) {
+    const doneMsgs = _nurseMsgData.filter(m => m.replied);
+    if (doneMsgs.length === 0) {
+      doneList.innerHTML = '<div style="text-align:center;color:#aaa;margin:16px 0;font-size:.85rem">尚無已完成項目</div>';
+    } else {
+      doneList.innerHTML = doneMsgs.map(m => `
+        <div class="todo-row done-row" style="opacity:.75;cursor:pointer" onclick="openNurseHistoryModal('${m.bed}')">
+          <div style="flex:1;min-width:0">
+            <div class="todo-room">
+              <span class="todo-done-icon">✅</span>${escHtml(m.bed)} - ${escHtml(m.ttas_summary || m.text?.slice(0,20) || '')}
+            </div>
+            <div style="font-size:.78rem;color:#aaa;margin-top:2px">${m.timestamp || ''}</div>
+            ${m.reply_text && m.reply_text !== '（已標記完成）'
+              ? `<div style="font-size:.8rem;color:#43a047;margin-top:4px;padding:6px 10px;background:#f1f8f4;border-radius:7px;border-left:3px solid #43a047">💬 ${escHtml(m.reply_text)}</div>`
+              : ''}
+          </div>
+          <span class="ttas-badge l${m.ttas_level||4}" style="flex-shrink:0">${LEVEL_ICON[m.ttas_level||4]} L${m.ttas_level||4}</span>
+        </div>`).join('');
+    }
+  }
+
   // 點卡片：標記已讀 + 開啟回覆 Modal（未回覆時）
   list.querySelectorAll('.nurse-msg-card').forEach(card => {
-    // ETA 按鈕不觸發卡片 click
-    card.querySelectorAll('.eta-btn').forEach(btn => btn.addEventListener('click', e => e.stopPropagation()));
+    // ETA 按鈕：送出預計回覆時間通知給病患
+    card.querySelectorAll('.eta-btn').forEach(btn => btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const bed = btn.dataset.bed;
+      const eta = btn.dataset.eta;
+      _replyEtaMap[bed] = eta;
+      // 更新按鈕視覺
+      card.querySelectorAll('.eta-btn').forEach(b => b.classList.remove('eta-active'));
+      btn.classList.add('eta-active');
+      showToast(`✅ 已通知病患：護理師預計 ${eta} 回覆`);
+      try {
+        await fetch(`/api/doctor/pending/${encodeURIComponent(bed)}/eta`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bed, eta, doctor_id: state.currentUser?.id || 'nurse_001' })
+        });
+      } catch(_) {}
+    }));
 
-    card.addEventListener('click', async () => {
+    card.querySelector('.nurse-done-btn')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const msgId = parseInt(e.currentTarget.dataset.msgId);
+      e.currentTarget.disabled = true;
+      e.currentTarget.textContent = '處理中…';
+      try {
+        await fetch(`/api/nurse/message/${msgId}/done`, { method: 'POST' });
+        showToast('✅ 已標記為完成');
+        await loadNurseMessages();
+      } catch {
+        showToast('⚠️ 操作失敗，請重試');
+        e.currentTarget.disabled = false;
+        e.currentTarget.textContent = '✅ 完成';
+      }
+    });
+
+    card.addEventListener('click', async (e) => {
+      if (e.target.closest('.nurse-done-btn') || e.target.closest('.eta-btn')) return;
       const id = parseInt(card.dataset.msgId);
       const msg = _nurseMsgData.find(m => m.id === id);
       if (!msg) return;
@@ -363,17 +477,11 @@ function renderNurseMsgs() {
         const ttasBadgeEl = document.getElementById('nurseReplyTtasBadge');
         if (ttasBadgeEl) ttasBadgeEl.innerHTML = `<span class="ttas-badge l${lvl}">${LEVEL_ICON[lvl]} Level ${lvl}｜${LEVEL_NAME[lvl]}</span>`;
         document.getElementById('nurseReplyText').value = '';
-        document.getElementById('nurseVoiceStatus').textContent = '';
         document.getElementById('nurseAiSuggestionBox').style.display = 'none';
         document.getElementById('nurseAiSuggestionText').textContent = '';
         document.getElementById('nurseAiSuggestBtn').disabled = false;
         document.getElementById('nurseAiSuggestBtn').textContent = '🤖 AI 建議回覆（供護理師參考）';
-        // 重置歷史面板
-        document.getElementById('nurseHistoryPanel').style.display = 'none';
-        document.getElementById('nurseHistoryChevron').textContent = '▼';
-        document.getElementById('nurseHistoryList').innerHTML = '<div style="text-align:center;color:#bbb;font-size:.78rem">載入中…</div>';
         _chatHistory = [];
-        loadChatHistory(msg.bed, 'nurseHistoryList');
         document.getElementById('nurseReplyModal').style.display = 'flex';
       }
     });
@@ -414,44 +522,39 @@ document.getElementById('nurseReplySubmitBtn')?.addEventListener('click', async 
   await loadNurseMessages();
 });
 
-// 護理師語音輸入
-document.getElementById('nurseVoiceBtn')?.addEventListener('click', async () => {
-  if (_nurseVoiceRecording) {
-    _nurseVoiceRecorder?.stop();
-    _nurseVoiceRecording = false;
-    document.getElementById('nurseVoiceBtn').innerHTML = `${_MIC} 語音輸入`;
-    document.getElementById('nurseVoiceStatus').textContent = '處理中...';
+// 護理師語音輸入（直接使用 SpeechRecognition，不需 MediaRecorder）
+let _nurseRecognizer = null;
+document.getElementById('nurseVoiceBtn')?.addEventListener('click', () => {
+  const btn = document.getElementById('nurseVoiceBtn');
+  if (_nurseRecognizer) {
+    _nurseRecognizer.stop();
     return;
   }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    _nurseVoiceChunks = [];
-    _nurseVoiceRecorder = new MediaRecorder(stream);
-    _nurseVoiceRecorder.ondataavailable = e => _nurseVoiceChunks.push(e.data);
-    _nurseVoiceRecorder.onstop = () => {
-      stream.getTracks().forEach(t => t.stop());
-      // 用 Web Speech API SpeechRecognition 識別
-      const blob = new Blob(_nurseVoiceChunks, { type: 'audio/webm' });
-      document.getElementById('nurseVoiceStatus').textContent = '錄音完成（若有語音識別支援將自動轉文字）';
-      // 嘗試用 SpeechRecognition
-      if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognizer = new SR();
-        recognizer.lang = 'zh-TW';
-        recognizer.onresult = ev => {
-          const transcript = ev.results[0][0].transcript;
-          document.getElementById('nurseReplyText').value += (document.getElementById('nurseReplyText').value ? '；' : '') + transcript;
-          document.getElementById('nurseVoiceStatus').textContent = '✅ 語音轉文字完成';
-        };
-        recognizer.onerror = () => document.getElementById('nurseVoiceStatus').textContent = '語音識別失敗，請手動輸入';
-        recognizer.start();
-      }
-    };
-    _nurseVoiceRecorder.start();
-    _nurseVoiceRecording = true;
-    document.getElementById('nurseVoiceBtn').textContent = '⏹ 停止錄音';
-    document.getElementById('nurseVoiceStatus').textContent = '錄音中... 再次點擊停止';
-  } catch { showToast("無法取得麥克風權限"); }
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    showToast("⚠️ 此裝置不支援語音識別，請手動輸入");
+    return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  _nurseRecognizer = new SR();
+  _nurseRecognizer.lang = 'zh-TW';
+  _nurseRecognizer.continuous = false;
+  _nurseRecognizer.interimResults = false;
+  _nurseRecognizer.onresult = ev => {
+    const transcript = ev.results[0][0].transcript;
+    const ta = document.getElementById('nurseReplyText');
+    ta.value += (ta.value ? '；' : '') + transcript;
+  };
+  _nurseRecognizer.onerror = () => {
+    showToast("⚠️ 語音識別失敗，請手動輸入");
+  };
+  _nurseRecognizer.onend = () => {
+    btn.innerHTML = `${_MIC} 語音輸入`;
+    btn.style.background = '#fff';
+    _nurseRecognizer = null;
+  };
+  _nurseRecognizer.start();
+  btn.innerHTML = '⏹ 停止';
+  btn.style.background = '#ffebee';
 });
 
 // 護理師 AI 建議回覆
@@ -465,6 +568,19 @@ document.getElementById('nurseAiSuggestBtn')?.addEventListener('click', async ()
   btn.textContent = '🤖 AI 分析中…';
   textEl.textContent = '';
   box.style.display = 'none';
+
+  // DEMO bypass：飲食詢問直接用寫好的回覆
+  const msgText = m.text || '';
+  if (msgText.includes('吃') || msgText.includes('飲食') || msgText.includes('食物') || msgText.includes('菜單')) {
+    await new Promise(r => setTimeout(r, 400));
+    document.getElementById('nurseReplyText').value =
+      '王先生您好！根據您目前骨盆骨折術後的情況，飲食建議以高蛋白質食物（雞胸肉、豆腐、水煮蛋）為主，有助骨骼修復；同時多補充富含鈣質的食物（牛奶、豆漿）和維他命D。今日醫院提供軟食，請依個人口感偏好選擇，若有腸胃不適或特殊飲食限制，請立即告知護理師。';
+    showToast('🤖 AI 飲食衛教建議已生成，可修改後送出');
+    btn.disabled = false;
+    btn.textContent = '🤖 重新生成';
+    return;
+  }
+
   try {
     const res = await fetch('/api/nurse/ai-suggest', {
       method: 'POST',
@@ -479,8 +595,8 @@ document.getElementById('nurseAiSuggestBtn')?.addEventListener('click', async ()
     });
     const data = await res.json();
     if (data.success && data.suggestion) {
-      textEl.textContent = data.suggestion;
-      box.style.display = 'block';
+      document.getElementById('nurseReplyText').value = data.suggestion;
+      box.style.display = 'none';
       btn.textContent = '🤖 重新生成';
     } else {
       showToast("⚠️ AI 無法生成建議：" + (data.error || '未知錯誤'));
@@ -539,10 +655,14 @@ function renderChatBubbles(messages, containerId) {
         <span style="font-size:.68rem;color:#aaa">病患｜${m.timestamp || ''}</span>
         <div style="background:#fce4ec;border-radius:0 10px 10px 10px;padding:8px 12px;font-size:.85rem;color:#333;max-width:90%;line-height:1.4">${escHtml(m.text)}</div>
       </div>`;
+    const _role = m.reply_by_role || m.route || 'attending';
+    const _repBg    = _role === 'nurse' ? '#f3e5f5' : _role === 'resident' ? '#e3f2fd' : '#e8f5e9';
+    const _repBorder= _role === 'nurse' ? '#9c27b0' : _role === 'resident' ? '#1976d2' : '#388e3c';
+    const _repLabel = _role === 'nurse' ? '護理師回覆' : _role === 'resident' ? '住院醫師回覆' : '主治醫師回覆';
     const repBubble = m.replied && m.reply_text ? `
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
-        <span style="font-size:.68rem;color:#aaa">回覆</span>
-        <div style="background:#e8f5e9;border-radius:10px 0 10px 10px;padding:8px 12px;font-size:.85rem;color:#333;max-width:90%;line-height:1.4">${escHtml(m.reply_text)}</div>
+        <span style="font-size:.68rem;color:#aaa">${_repLabel}</span>
+        <div style="background:${_repBg};border-left:3px solid ${_repBorder};border-radius:10px 0 10px 10px;padding:8px 12px;font-size:.85rem;color:#333;max-width:90%;line-height:1.4">${escHtml(m.reply_text)}</div>
       </div>` : '';
     return patBubble + repBubble;
   }).join('');
@@ -556,16 +676,6 @@ async function loadChatHistory(bed, listId) {
     renderChatBubbles(_chatHistory, listId);
   } catch { /* silent */ }
 }
-
-// ── 護理師：對話紀錄 toggle ──────────────────────
-document.getElementById('nurseHistoryToggle')?.addEventListener('click', () => {
-  const panel = document.getElementById('nurseHistoryPanel');
-  const chevron = document.getElementById('nurseHistoryChevron');
-  const open = panel.style.display !== 'none';
-  panel.style.display = open ? 'none' : 'flex';
-  if (!open) panel.style.flexDirection = 'column';
-  chevron.textContent = open ? '▼' : '▲';
-});
 
 // ── 醫生：對話紀錄 toggle ────────────────────────
 document.getElementById('doctorHistoryToggle')?.addEventListener('click', () => {
@@ -598,16 +708,16 @@ document.getElementById('nurseEmpathyRewriteBtn')?.addEventListener('click', asy
   }
 });
 
-// 護理師端定時刷新（30 秒）
+// 護理師端定時刷新（保底備援，60 秒；WebSocket 即時推播為主）
 setInterval(() => {
   if (document.getElementById('screen-nurse')?.classList.contains('active')) loadNurseMessages();
-}, 30000);
+}, 60000);
 
-// 醫生端定時刷新（5 秒）
+// 醫生端定時刷新（保底備援，60 秒；WebSocket 即時推播為主）
 setInterval(() => {
   const doctorScreen = document.getElementById('screen-doctor');
   if (doctorScreen?.classList.contains('active')) loadDoctorList();
-}, 5000);
+}, 60000);
 
 // ════════════════════════════════════════════════
 // 醫生端身分由帳號登入決定
@@ -1131,6 +1241,12 @@ function selectCrowdVideo(v) {
   const rateBtn2 = document.getElementById('btnRateVideo');
   if (rateBtn2) { rateBtn2.disabled = false; rateBtn2.textContent = '⭐ 評分'; }
 
+  // 顯示點讚 / 回饋按鈕（群眾影片才出現）
+  const btnLike = document.getElementById('btnLikeVideo');
+  const btnFb   = document.getElementById('btnFeedbackVideo');
+  if (btnLike) { btnLike.style.display = 'inline-flex'; btnLike.disabled = false; btnLike.classList.remove('liked'); btnLike.textContent = '👍 點讚'; }
+  if (btnFb)   { btnFb.style.display = 'inline-flex'; }
+
   // 顯示 Badge 與控制按鈕（群眾影片）
   const badge = document.getElementById('videoLiveBadge');
   const dot = document.getElementById('videoLiveDot');
@@ -1260,12 +1376,20 @@ function selectCamera(cam) {
     crowdVideoPlayer.pause();
   }
 
-  // 隱藏群眾影片的感謝/評分按鈕
+  // 隱藏群眾影片的感謝/評分/點讚/回饋按鈕
   const actionsDiv = document.getElementById('crowdVideoActions');
   if (actionsDiv) actionsDiv.style.display = 'none';
+  const _btnLike = document.getElementById('btnLikeVideo');
+  const _btnFb   = document.getElementById('btnFeedbackVideo');
+  if (_btnLike) _btnLike.style.display = 'none';
+  if (_btnFb)   _btnFb.style.display = 'none';
   _currentCrowdTaskId = null;
   const oldTc = document.getElementById('tcIframe');
   if (oldTc) oldTc.remove();
+
+  // 清除上一個攝影機的錯誤覆層
+  const errOverlayPrev = document.getElementById('camErrorOverlay');
+  if (errOverlayPrev) errOverlayPrev.style.display = 'none';
 
   // 恢復即時影像 Badge 樣式
   const badge = document.getElementById('videoLiveBadge');
@@ -1345,6 +1469,16 @@ function selectCamera(cam) {
   newImg.src = api.getCamProxyUrl(cam.id);
 }
 
+
+// ── 依名稱關鍵字找攝影機並播放（按鈕快捷用）──────────────
+function selectCameraByKeyword(keyword) {
+  const cam = _allCameras.find(c => c.name && c.name.includes(keyword));
+  if (cam) {
+    selectCamera(cam);
+  } else {
+    showToast('⏳ 攝影機載入中，請稍候再試...');
+  }
+}
 
 let _missingLocation = "";
 let _missingLatLng = null;
@@ -1464,7 +1598,26 @@ document.getElementById("btnMute")?.addEventListener("click", (e) => {
   applyMuteState();
 });
 
+// ── 地圖快選搜尋（DEMO 用）──────────────────────────
+function demoMapSearch(query) {
+  const input = document.getElementById('mapSearchInput');
+  if (input) input.value = query;
+  if (!_gMap || !window.google) return;
+  const service = new google.maps.places.PlacesService(_gMap);
+  service.findPlaceFromQuery(
+    { query, fields: ['geometry', 'name'] },
+    (results, status) => {
+      if (status === google.maps.places.PlacesServiceStatus.OK && results[0]) {
+        const loc = results[0].geometry.location;
+        _gMap.panTo(loc);
+        _gMap.setZoom(16);
+      }
+    }
+  );
+}
+
 // ── 景點請求 Modal ───────────────────────────────
+
 document.getElementById("btnOpenRequest")?.addEventListener("click", () => {
   hideMissingPopup();
   document.getElementById("modalLocation").value = _missingLocation;
@@ -1518,8 +1671,9 @@ async function loadPatientMessages() {
       api.getPatientMessages(patientId),
       fetch(`/api/patient/care-team?patient_id=${patientId}`).then(r => r.json()).catch(() => ({}))
     ]);
+    state._careTeam = careData.care_team || {};
     renderHistoryList(msgData.messages);
-    renderCareTeamBar(careData.care_team || {});
+    renderCareTeamBar(state._careTeam);
   } catch {
     showToast("⚠️ 訊息載入失敗");
   }
@@ -1544,17 +1698,29 @@ function renderHistoryList(messages) {
   // 儲存到 state 供 modal 使用
   state._patientMessages = messages;
   const emotionEmoji = { '開心': '😊', '難過': '😟', '焦慮': '😰', '有問題': '🤔' };
-  const LVLCOLOR = { 1:'#e53935', 2:'#ff6f00', 3:'#ffc107', 4:'#9e9e9e' };
-  const LVLICON  = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'⚪' };
-  const LVLNAME  = { 1:'立即急症', 2:'緊急', 3:'常規護理', 4:'生活協助' };
-  const LVLROUTE = { 1:'→ 主治醫師', 2:'→ 住院醫師', 3:'→ 護理師', 4:'→ 護理師' };
+  const LVLCOLOR = { 1:'#b71c1c', 2:'#e53935', 3:'#ff6f00', 4:'#ffc107', 5:'#9e9e9e' };
+  const LVLICON  = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'🟢', 5:'⚪' };
+  const LVLNAME  = { 1:'復甦急救', 2:'危急', 3:'緊急', 4:'次緊急', 5:'非緊急' };
+  const ct = state._careTeam || {};
+  const atName  = ct.attending ? `${ct.attending.name}（${ct.attending.dept}）主治醫師` : '主治醫師';
+  const resName = ct.resident  ? `${ct.resident.name}（${ct.resident.dept}）住院醫師`  : '住院醫師';
+  const nurName = ct.nurse     ? `${ct.nurse.name} 護理師` : '護理師';
+  // 路由標籤：優先用 route 欄位，fallback 用 ttas_level
+  function _lvlRoute(m) {
+    const r = m.route;
+    if (r === 'attending') return `→ ${atName}`;
+    if (r === 'resident')  return `→ ${resName}`;
+    if (r === 'nurse')     return `→ ${nurName}`;
+    const l = m.ttas_level || 4;
+    return l <= 2 ? `→ ${atName}` : l === 3 ? `→ ${resName}` : `→ ${nurName}`;
+  }
   list.innerHTML = messages.map((m, idx) => {
     const emo = emotionEmoji[m.emotion] || m.emotion || '';
     const preview = m.text ? (m.text.slice(0, 22) + (m.text.length > 22 ? '...' : '')) : `[${m.emotion}]`;
     const lvl = m.ttas_level || 0;
-    const tColor = lvl === 3 ? '#555' : '#fff';
+    const tColor = (lvl === 4 || lvl === 5) ? '#555' : '#fff';
     const ttasBadge = lvl
-      ? `<span style="background:${LVLCOLOR[lvl]};color:${tColor};padding:1px 6px;border-radius:7px;font-size:.68rem;font-weight:700;white-space:nowrap">${LVLICON[lvl]} L${lvl} ${LVLNAME[lvl]}</span><span style="font-size:.68rem;color:#888">${LVLROUTE[lvl]}</span>`
+      ? `<span style="background:${LVLCOLOR[lvl]||'#9e9e9e'};color:${tColor};padding:1px 6px;border-radius:7px;font-size:.68rem;font-weight:700;white-space:nowrap">${LVLICON[lvl]||'⚪'} L${lvl} ${LVLNAME[lvl]||''}</span><span style="font-size:.68rem;color:#888">${_lvlRoute(m)}</span>`
       : '';
     return `
     <div class="history-item ${!m.replied ? 'unread' : ''}" onclick="openMsgModal(${idx})" style="cursor:pointer">
@@ -1587,16 +1753,17 @@ function openMsgModal(idx) {
   const ttasSection = document.getElementById('mdm-ttas-section');
   const ttasBadgeEl = document.getElementById('mdm-ttas-badge');
   if (ttasSection && ttasBadgeEl && m.ttas_level) {
-    const LVLCOLOR = { 1:'#e53935', 2:'#ff6f00', 3:'#ffc107', 4:'#9e9e9e' };
-    const LVLICON  = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'⚪' };
-    const LVLNAME  = { 1:'立即急症', 2:'緊急醫療', 3:'常規護理', 4:'生活協助' };
-    const LVLROUTE = { 1:'主治醫師', 2:'住院醫師', 3:'護理師', 4:'護理師' };
+    const LVLCOLOR = { 1:'#b71c1c', 2:'#e53935', 3:'#ff6f00', 4:'#ffc107', 5:'#9e9e9e' };
+    const LVLICON  = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'🟢', 5:'⚪' };
+    const LVLNAME  = { 1:'復甦急救', 2:'危急', 3:'緊急', 4:'次緊急', 5:'非緊急' };
+    const _routeToLabel = r => r==='attending'?'主治醫師':r==='resident'?'住院醫師':'護理師';
     const lvl = m.ttas_level;
-    const tColor = lvl === 3 ? '#555' : '#fff';
+    const routeLabel = _routeToLabel(m.route || (lvl<=2?'attending':lvl===3?'resident':'nurse'));
+    const tColor = (lvl === 4 || lvl === 5) ? '#555' : '#fff';
     ttasBadgeEl.innerHTML = `
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <span style="background:${LVLCOLOR[lvl]};color:${tColor};padding:3px 10px;border-radius:10px;font-weight:800;font-size:.8rem">${LVLICON[lvl]} Level ${lvl}｜${LVLNAME[lvl]}</span>
-        <span style="font-size:.8rem;color:#555">→ 分流至 ${LVLROUTE[lvl]}</span>
+        <span style="background:${LVLCOLOR[lvl]||'#9e9e9e'};color:${tColor};padding:3px 10px;border-radius:10px;font-weight:800;font-size:.8rem">${LVLICON[lvl]||'⚪'} Level ${lvl}｜${LVLNAME[lvl]||''}</span>
+        <span style="font-size:.8rem;color:#555">→ 分流至 ${routeLabel}</span>
       </div>
       ${m.ttas_summary ? `<div style="margin-top:4px;font-size:.75rem;color:#888">摘要：${escHtml(m.ttas_summary)}</div>` : ''}`;
     ttasSection.style.display = 'block';
@@ -1607,6 +1774,14 @@ function openMsgModal(idx) {
   const replyText = document.getElementById('mdm-reply-text');
   if (m.replied && m.reply_text) {
     replyText.textContent = m.reply_text;
+    const _mRole = m.reply_by_role || m.route || 'attending';
+    const _mBg     = _mRole === 'nurse' ? '#f3e5f5' : _mRole === 'resident' ? '#e3f2fd' : '#e8f5e9';
+    const _mBorder = _mRole === 'nurse' ? '#9c27b0' : _mRole === 'resident' ? '#1976d2' : '#388e3c';
+    const _mLabel  = _mRole === 'nurse' ? '護理師回覆' : _mRole === 'resident' ? '住院醫師回覆' : '主治醫師回覆';
+    replySection.style.background = _mBg;
+    replySection.style.borderLeft = `4px solid ${_mBorder}`;
+    const labelEl = document.getElementById('mdm-reply-label');
+    if (labelEl) { labelEl.textContent = _mLabel; labelEl.style.color = _mBorder; }
     replySection.style.display = 'block';
   } else {
     replySection.style.display = 'none';
@@ -1668,8 +1843,10 @@ function showEmergencyAlert(level, summary) {
   const overlay = document.createElement('div');
   overlay.id = 'ttasEmergencyOverlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(180,0,0,.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;animation:fadeIn .3s';
-  const icon = level === 1 ? '🚨' : '⚠️';
-  const title = level === 1 ? '立即急症！請馬上按護理鈴！' : '緊急狀況！請按護理鈴！';
+  const icon  = level === 1 ? '🚨' : '⚠️';
+  const title = level === 1 ? '復甦急救！請馬上按護理鈴！'
+              : level === 2 ? '危急狀況！請馬上按護理鈴！'
+              : '緊急狀況！請按護理鈴！';
   overlay.innerHTML = `
     <div style="font-size:4rem;margin-bottom:12px">${icon}</div>
     <div style="color:#fff;font-size:1.6rem;font-weight:900;text-align:center;margin-bottom:12px">${title}</div>
@@ -1792,6 +1969,12 @@ document.getElementById("btnSendMsg")?.addEventListener("click", async () => {
   let ttasFallback = false;
 
   if (text) {
+    if (_demoTriageResult) {
+      // DEMO 模式：假裝 AI 分析中，直接用預設結果
+      showToast("🔍 AI 正在分析訊息緊急程度...");
+      ttasResult = _demoTriageResult;
+      _demoTriageResult = null;
+    } else {
     try {
       showToast("🔍 AI 正在分析訊息緊急程度...");
       const triageRes = await fetch('/api/triage', {
@@ -1808,10 +1991,15 @@ document.getElementById("btnSendMsg")?.addEventListener("click", async () => {
     } catch {
       ttasFallback = true;
     }
+    }
 
+    // 自傷意念：特殊警告
+    if (ttasResult.self_harm_detected) {
+      showToast('🆘 我們注意到您可能需要心理支持，已立即通知醫療團隊');
+    }
     // Level 1 或 2：立即跳大視窗警告，不管 follow_up
-    if (ttasResult.level <= 2) {
-      showEmergencyAlert(ttasResult.level, ttasResult.summary);
+    if ((ttasResult.ttas_level || ttasResult.level) <= 2) {
+      showEmergencyAlert(ttasResult.ttas_level || ttasResult.level, ttasResult.summary);
       // 仍然繼續送出訊息（病患知情後可繼續）
     } else if (ttasResult.follow_up && !ttasFallback) {
       // Level 3/4 且 AI 需要追問：最多一次
@@ -1827,7 +2015,9 @@ document.getElementById("btnSendMsg")?.addEventListener("click", async () => {
           if (triageRes2.success) ttasResult = triageRes2.result;
         } catch {}
         // 第二輪若升為 Level 1/2 也要警告
-        if (ttasResult.level <= 2) showEmergencyAlert(ttasResult.level, ttasResult.summary);
+        const lvl2 = ttasResult.ttas_level || ttasResult.level;
+        if (lvl2 <= 2) showEmergencyAlert(lvl2, ttasResult.summary);
+        if (ttasResult.self_harm_detected) showToast('🆘 我們注意到您可能需要心理支持，已立即通知醫療團隊');
       }
     }
   }
@@ -1836,7 +2026,7 @@ document.getElementById("btnSendMsg")?.addEventListener("click", async () => {
   try {
     await api.sendPatientMessage(
       patientId, bed, emotion, text, doctorId, null,
-      ttasResult.level, ttasResult.category, ttasResult.summary
+      ttasResult.ttas_level || ttasResult.level, ttasResult.ttas_category || ttasResult.category, ttasResult.ttas_summary || ttasResult.summary, ttasResult
     );
 
     document.getElementById("patientMsg").value = "";
@@ -1854,12 +2044,16 @@ document.getElementById("btnSendMsg")?.addEventListener("click", async () => {
         resultCard.style.background = '#f8f8f8';
         resultBody.innerHTML = '<span style="color:#888">AI 暫時無法分析，訊息已保守處理</span>';
       } else {
-        const lvl = ttasResult.level;
-        const LVLCOLOR = { 1:'#e53935', 2:'#ff6f00', 3:'#ffc107', 4:'#9e9e9e' };
-        const LVLICON  = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'⚪' };
-        const LVLNAME  = { 1:'立即急症', 2:'緊急醫療', 3:'常規護理', 4:'生活協助' };
-        const LVLROUTE = { 1:'📣 已分流至主治醫師', 2:'📣 已分流至住院醫師', 3:'📣 已分流至護理師', 4:'📣 已分流至護理師' };
-        const tColor   = lvl === 3 ? '#555' : '#fff';
+        const lvl = ttasResult.ttas_level || ttasResult.level;
+        const LVLCOLOR = { 1:'#b71c1c', 2:'#e53935', 3:'#ff6f00', 4:'#ffc107', 5:'#9e9e9e' };
+        const LVLICON  = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'🟢', 5:'⚪' };
+        const LVLNAME  = { 1:'復甦急救', 2:'危急', 3:'緊急', 4:'次緊急', 5:'非緊急' };
+        const ttasRes  = ttasResult;
+        const routeLabel = ttasRes.route === 'attending' ? '📣 已分流至主治醫師'
+                         : ttasRes.route === 'resident'  ? '📣 已分流至住院醫師'
+                         : '📣 已分流至護理師';
+        const LVLROUTE = { 1: routeLabel, 2: routeLabel, 3: routeLabel, 4: routeLabel, 5: routeLabel };
+        const tColor   = (lvl === 4 || lvl === 5) ? '#555' : '#fff';
         resultCard.style.borderColor = LVLCOLOR[lvl] || '#38b27a';
         resultCard.style.background  = lvl <= 2 ? '#fff5f5' : lvl === 3 ? '#f1f8f4' : '#f8f8f8';
         resultBody.innerHTML = `
@@ -1944,10 +2138,11 @@ async function loadDoctorList() {
 }
 
 const _TTAS_BADGE = {
-  1: { label: '🔴 L1 立即急症', bg: '#e53935', color: '#fff', border: '#e53935' },
-  2: { label: '🟠 L2 緊急醫療', bg: '#ff6f00', color: '#fff', border: '#ff6f00' },
-  3: { label: '🟡 L3 常規護理', bg: '#ffc107', color: '#555', border: '#ffc107' },
-  4: { label: '⚪ L4 生活協助', bg: '#f5f5f5', color: '#777', border: '#bbb'    },
+  1: { label: '🔴 L1 復甦急救', bg: '#b71c1c', color: '#fff', border: '#b71c1c' },
+  2: { label: '🟠 L2 危急',     bg: '#e53935', color: '#fff', border: '#e53935' },
+  3: { label: '🟡 L3 緊急',     bg: '#ff6f00', color: '#fff', border: '#ff6f00' },
+  4: { label: '🟢 L4 次緊急',   bg: '#ffc107', color: '#555', border: '#ffc107' },
+  5: { label: '⚪ L5 非緊急',   bg: '#f5f5f5', color: '#777', border: '#bbb'    },
 };
 
 function ttasBadgeHtml(lvl) {
@@ -1957,8 +2152,8 @@ function ttasBadgeHtml(lvl) {
 
 function updateTtasCounts(pending) {
   const count = [0, 0, 0, 0, 0]; // index 1-4
-  pending.forEach(p => { const l = p.latest_ttas_level || 3; if (l >= 1 && l <= 4) count[l]++; });
-  ['L1','L2','L3','L4'].forEach((k, i) => {
+  pending.forEach(p => { const l = p.latest_ttas_level || 4; if (l >= 1 && l <= 5) count[l]++; });
+  ['L1','L2','L3','L4','L5'].forEach((k, i) => {
     const el = document.getElementById('count' + k);
     if (el) el.textContent = count[i + 1];
   });
@@ -1993,7 +2188,7 @@ function renderPendingList(pending, done, stats) {
   // 更新 TTAS 計數
   updateTtasCounts(pending);
 
-  const LEVEL_ROW_CLASS = { 1: 'priority-red', 2: 'priority-yellow', 3: '', 4: '' };
+  const LEVEL_ROW_CLASS = { 1: 'priority-red', 2: 'priority-red', 3: 'priority-yellow', 4: '', 5: '' };
   const ETA_OPTIONS = [
     { label: '5分', value: '5分鐘內' },
     { label: '10分', value: '10分鐘內' },
@@ -2005,12 +2200,6 @@ function renderPendingList(pending, done, stats) {
     const lvl = p.latest_ttas_level || 3;
     const rowClass = LEVEL_ROW_CLASS[lvl] || '';
     const unreadBadge = p.unread > 0 ? `<span class="unread-badge">${p.unread}</span>` : '';
-    const currentEta = _replyEtaMap[p.bed] || '';
-    const etaBtns = ETA_OPTIONS.map(opt => {
-      const active = currentEta === opt.value;
-      return `<button class="eta-btn${active ? ' eta-active' : ''}" data-bed="${p.bed}" data-eta="${opt.value}" data-role="doctor">${opt.label}</button>`;
-    }).join('');
-
     return `
     <div class="todo-row ${rowClass}" data-bed="${p.bed}">
       <div style="flex:1;min-width:0;">
@@ -2023,15 +2212,11 @@ function renderPendingList(pending, done, stats) {
            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#555;font-size:.85rem">${p.latest_message ? escHtml(p.latest_message) : p.latest_emotion}</span>
            <span class="todo-time" style="flex-shrink:0">${p.timestamp || ''}</span>
         </div>
-        <div class="eta-row" style="display:flex;align-items:center;gap:5px;margin-top:6px;flex-wrap:wrap;">
-          <span style="font-size:.72rem;color:#888;font-weight:600;">預計回覆：</span>
-          ${etaBtns}
-          ${currentEta ? `<span class="eta-set-label">✓ ${currentEta}</span>` : ''}
-        </div>
       </div>
       <div style="display:flex; align-items:center; gap:8px; margin-left:12px; flex-shrink:0;">
         ${ttasBadgeHtml(lvl)}
         <button class="view-btn">查看留言</button>
+        <button class="done-btn" data-bed="${p.bed}" title="標記為已完成" style="background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:8px;padding:6px 10px;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap">✅ 完成</button>
       </div>
     </div>`;
   }).join("");
@@ -2082,13 +2267,36 @@ function renderPendingList(pending, done, stats) {
     });
   });
 
-  // 綁定點擊 (點擊卡片進入回覆)
+  // 綁定點擊 (點擊卡片進入回覆；已完成卡片開歷史 Modal)
   document.querySelectorAll(".todo-row[data-bed]").forEach((row) => {
-    row.addEventListener("click", () => {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest('.done-btn') || e.target.closest('.eta-btn')) return;
+      if (row.classList.contains('done-row')) {
+        openNurseHistoryModal(row.dataset.bed);
+        return;
+      }
       const patientRow = _lastDoctorData?.pending?.find(p => p.bed === row.dataset.bed)
         || _lastDoctorData?.done?.find(p => p.bed === row.dataset.bed)
         || null;
       openDoctorReply(row.dataset.bed, patientRow);
+    });
+  });
+
+  document.querySelectorAll(".done-btn[data-bed]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const bed = btn.dataset.bed;
+      btn.disabled = true;
+      btn.textContent = '處理中…';
+      try {
+        await fetch(`/api/doctor/pending/${encodeURIComponent(bed)}/done`, { method: 'POST' });
+        showToast(`✅ ${bed} 號病房已標記完成`);
+        await loadDoctorList();
+      } catch {
+        showToast('⚠️ 操作失敗，請重試');
+        btn.disabled = false;
+        btn.textContent = '✅ 完成';
+      }
     });
   });
 }
@@ -2141,14 +2349,7 @@ async function openDoctorReply(bed, patientRow) {
   state.currentBed = bed;
   document.getElementById("llmPreview").style.display = "none";
   document.getElementById("doctorReplyText").value = "";
-  // 重置對話紀錄面板
-  const drPanel = document.getElementById('doctorHistoryPanel');
-  if (drPanel) drPanel.style.display = 'none';
-  const drChevron = document.getElementById('doctorHistoryChevron');
-  if (drChevron) drChevron.textContent = '▼';
-  document.getElementById('doctorHistoryList').innerHTML = '<div style="text-align:center;color:#bbb;font-size:.78rem">載入中…</div>';
   _chatHistory = [];
-  loadChatHistory(bed, 'doctorHistoryList');
 
   // 填入左側病患基本資訊（從清單 row 取得）
   const nameEl     = document.getElementById("replyPatientName");
@@ -2180,11 +2381,18 @@ async function openDoctorReply(bed, patientRow) {
   try {
     const data = await api.getPatientByBed(bed);
     const msgs = data.messages || [];
-    const unreplied = msgs.filter((m) => !m.replied);
+    // 依醫師角色過濾：用 route 欄位決定，fallback 才用 TTAS level
+    const roleKey = _doctorType === 'resident' ? 'resident' : 'attending';
+    const unreplied = msgs.filter((m) => {
+      if (m.replied) return false;
+      if (m.route) return m.route === roleKey;
+      // fallback（舊資料無 route 欄位）
+      return _doctorType === 'resident' ? m.ttas_level <= 3 : m.ttas_level <= 2;
+    });
     const emoBadge = document.getElementById("patientEmotionBadge");
 
-    // 待回覆訊息（最舊的未讀）
-    const firstUnread = unreplied.length > 0 ? unreplied[unreplied.length - 1] : null;
+    // 待回覆訊息（最新的未讀，API 已 newest-first）
+    const firstUnread = unreplied.length > 0 ? unreplied[0] : null;
     if (firstUnread) {
       state.currentMsgId = firstUnread.id;
       document.getElementById("patientMsgBubble").textContent = firstUnread.text || `[${firstUnread.emotion}]`;
@@ -2196,15 +2404,25 @@ async function openDoctorReply(bed, patientRow) {
       // TTAS 標籤
       const ttasBadgeEl = document.getElementById('doctorTtasBadge');
       if (ttasBadgeEl && firstUnread.ttas_level) {
-        const LEVEL_COLOR = { 1: '#e53935', 2: '#ff6f00', 3: '#ffc107', 4: '#9e9e9e' };
-        const LEVEL_ICON  = { 1: '🔴', 2: '🟠', 3: '🟡', 4: '⚪' };
+        const LEVEL_COLOR = { 1:'#b71c1c', 2:'#e53935', 3:'#ff6f00', 4:'#ffc107', 5:'#9e9e9e' };
+        const LEVEL_ICON  = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'🟢', 5:'⚪' };
         const lvl = firstUnread.ttas_level;
-        ttasBadgeEl.innerHTML = `<span style="background:${LEVEL_COLOR[lvl]};color:${lvl===3?'#555':'#fff'};padding:3px 10px;border-radius:12px;font-size:.78rem;font-weight:700">${LEVEL_ICON[lvl]} Level ${lvl}｜${firstUnread.ttas_category || ''}${firstUnread.ttas_summary ? '：' + firstUnread.ttas_summary : ''}</span>`;
+        const tClr = (lvl===4||lvl===5) ? '#555' : '#fff';
+        const hasScores = firstUnread.nrs_estimated != null || firstUnread.bsrs_estimated != null;
+        ttasBadgeEl.innerHTML = `
+          <span style="background:${LEVEL_COLOR[lvl]||'#9e9e9e'};color:${tClr};padding:3px 10px;border-radius:12px;font-size:.78rem;font-weight:700">${LEVEL_ICON[lvl]||'⚪'} Level ${lvl}｜${firstUnread.ttas_category || ''}${firstUnread.ttas_summary ? '：' + firstUnread.ttas_summary : ''}</span>
+          ${hasScores ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">
+            ${firstUnread.nrs_estimated != null ? `<span style="font-size:.68rem;background:#fff3e0;color:#e65100;border:1px solid #ffb74d;padding:1px 6px;border-radius:6px">NRS ${firstUnread.nrs_estimated}/10</span>` : ''}
+            ${firstUnread.bsrs_estimated != null ? `<span style="font-size:.68rem;background:#f3e5f5;color:#6a1b9a;border:1px solid #ce93d8;padding:1px 6px;border-radius:6px">BSRS ${firstUnread.bsrs_estimated}/20</span>` : ''}
+            ${firstUnread.pcs_level != null ? `<span style="font-size:.68rem;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;padding:1px 6px;border-radius:6px">PCS L${firstUnread.pcs_level}</span>` : ''}
+            ${firstUnread.self_harm_detected ? `<span style="font-size:.68rem;background:#ffebee;color:#c62828;border:1px solid #ef9a9a;padding:1px 6px;border-radius:6px;font-weight:700">⚠️ 自傷意念</span>` : ''}
+            ${(firstUnread.urgency_flags||[]).includes('bsrs_attention') ? `<span style="font-size:.68rem;background:#fce4ec;color:#880e4f;border:1px solid #f48fb1;padding:1px 6px;border-radius:6px">心理關注</span>` : ''}
+            ${(firstUnread.urgency_flags||[]).includes('pain_attention') ? `<span style="font-size:.68rem;background:#fff8e1;color:#f57f17;border:1px solid #ffe082;padding:1px 6px;border-radius:6px">疼痛關注</span>` : ''}
+          </div>` : ''}
+          ${firstUnread.ttas_reasoning ? `<div style="margin-top:6px;padding:7px 10px;background:#f0f4ff;border-radius:8px;border-left:3px solid #6c5ce7;font-size:.72rem;color:#444;line-height:1.5">
+            <span style="font-weight:700;color:#6c5ce7">🤖 AI 分析依據：</span>${escHtml(firstUnread.ttas_reasoning)}
+          </div>` : ''}`;
         ttasBadgeEl.style.display = 'block';
-        const nurseNote = firstUnread.pushed_to_doctor ? '' : '';
-        if (firstUnread.pushed_to_doctor) {
-          ttasBadgeEl.innerHTML += `<span style="font-size:.72rem;color:#1976d2;margin-left:6px">（由護理師推送）</span>`;
-        }
       }
     } else {
       document.getElementById("patientMsgBubble").textContent = "（目前無待回覆訊息）";
@@ -2213,15 +2431,22 @@ async function openDoctorReply(bed, patientRow) {
       if (ttasBadgeEl) ttasBadgeEl.style.display = 'none';
     }
 
-    // 多訊息選擇器（有 2+ 則未回覆時顯示）
+    // 多訊息選擇器（有 2+ 則不同訊息時顯示，相同文字去重只留最新一則）
     const selectorRow = document.getElementById('msgSelectorRow');
     if (selectorRow) {
-      if (unreplied.length > 1) {
+      const seenTexts = new Set();
+      const dedupUnreplied = unreplied.filter(m => {
+        const key = (m.text || '').trim();
+        if (seenTexts.has(key)) return false;
+        seenTexts.add(key);
+        return true;
+      });
+      if (dedupUnreplied.length > 1) {
         selectorRow.style.display = 'flex';
-        selectorRow.innerHTML = unreplied.map((m, i) => {
+        selectorRow.innerHTML = dedupUnreplied.map((m, i) => {
           const emo = emotionEmoji[m.emotion] || '';
           const preview = (m.text || '').slice(0, 12);
-          const isActive = i === unreplied.length - 1; // 預設最舊的
+          const isActive = i === 0;
           return `<button onclick="selectDoctorMsg('${m.id}')" id="msgChip_${m.id}"
             style="padding:5px 12px;border-radius:20px;
                    border:1.5px solid ${isActive ? '#6c5ce7' : 'rgba(0,0,0,0.12)'};
@@ -2276,19 +2501,54 @@ function openHistoryModal() {
   if (meta) meta.textContent = `${patientName} · 共 ${total} 則・${unread > 0 ? unread + ' 則待回覆' : '全部已回覆'}`;
 
   const emotionEmoji = { '開心':'😊','難過':'😟','焦慮':'😰','有問題':'🤔' };
+  const LVLCOLOR = {1:'#b71c1c',2:'#e53935',3:'#ff6f00',4:'#ffc107',5:'#9e9e9e'};
+  const LVLICON  = {1:'🔴',2:'🟠',3:'🟡',4:'🟢',5:'⚪'};
+  const LVLNAME  = {1:'復甦急救',2:'危急',3:'緊急',4:'次緊急',5:'非緊急'};
   if (list) {
     if (!msgs.length) {
       list.innerHTML = '<div style="text-align:center;padding:32px;color:#aaa;font-size:0.85rem">尚無對話紀錄</div>';
     } else {
-      list.innerHTML = msgs.map(m => {
+      // 最近 5 則（已按時間由舊到新排序，取最後 5 筆）
+      const recent = msgs.slice(-5);
+      list.innerHTML = recent.map((m, i) => {
         const icon = emotionEmoji[m.emotion] || '';
+        const lvl = m.ttas_level;
+        const replierLabel = m.reply_by_role === 'nurse' ? '護理師回覆'
+          : m.reply_by_role === 'resident' ? '住院醫師回覆'
+          : m.reply_by_role === 'attending' ? '主治醫師回覆'
+          : '醫護回覆';
+        const replyBg   = m.reply_by_role === 'nurse'     ? '#f0fff4'
+          : m.reply_by_role === 'attending'               ? '#f3f0ff' : '#f0f8ff';
+        const replyBord = m.reply_by_role === 'nurse'     ? '#43a047'
+          : m.reply_by_role === 'attending'               ? '#7b1fa2' : '#4a90d9';
+        const replyCl   = m.reply_by_role === 'nurse'     ? '#2e7d32'
+          : m.reply_by_role === 'attending'               ? '#6a1b9a' : '#4a90d9';
         const replyBlock = m.replied && m.reply_text
-          ? `<div style="margin-top:8px;padding:8px 12px;background:#f0f8ff;border-radius:8px;
-                         border-left:3px solid #4a90d9;font-size:0.82rem;color:#333;line-height:1.5">
-               <div style="font-size:0.68rem;color:#4a90d9;font-weight:700;margin-bottom:3px">↩ 醫生回覆</div>
+          ? `<div style="margin-top:8px;padding:8px 12px;background:${replyBg};border-radius:8px;
+                         border-left:3px solid ${replyBord};font-size:0.82rem;color:#333;line-height:1.5">
+               <div style="font-size:0.68rem;color:${replyCl};font-weight:700;margin-bottom:3px">↩ ${replierLabel}</div>
                ${escHtml(m.reply_text)}
              </div>`
           : `<div style="margin-top:6px;font-size:0.72rem;color:#e67e22;font-weight:700">⏳ 尚未回覆</div>`;
+        const aiDetail = lvl ? `
+          <div id="aiDetail_${i}" style="display:none;margin-top:8px;padding:8px 10px;background:#f8f9ff;
+               border-radius:8px;border:1px solid #e0e4ff;font-size:0.75rem;color:#444;line-height:1.6">
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px">
+              <span style="background:${LVLCOLOR[lvl]||'#9e9e9e'};color:${lvl>=4?'#555':'#fff'};
+                           padding:1px 8px;border-radius:8px;font-weight:700;font-size:0.72rem">
+                ${LVLICON[lvl]||'⚪'} L${lvl} ${LVLNAME[lvl]||''}
+              </span>
+              ${m.nrs_estimated!=null?`<span style="background:#fff3e0;color:#e65100;border:1px solid #ffb74d;padding:1px 6px;border-radius:6px">NRS ${m.nrs_estimated}/10</span>`:''}
+              ${m.bsrs_estimated!=null?`<span style="background:#f3e5f5;color:#6a1b9a;border:1px solid #ce93d8;padding:1px 6px;border-radius:6px">BSRS ${m.bsrs_estimated}/20</span>`:''}
+              ${m.pcs_level!=null?`<span style="background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;padding:1px 6px;border-radius:6px">PCS L${m.pcs_level}</span>`:''}
+              ${m.self_harm_detected?`<span style="background:#ffebee;color:#c62828;border:1px solid #ef9a9a;padding:1px 6px;border-radius:6px;font-weight:700">⚠️ 自傷意念</span>`:''}
+              ${(m.urgency_flags||[]).includes('bsrs_attention')?`<span style="background:#fce4ec;color:#880e4f;border:1px solid #f48fb1;padding:1px 6px;border-radius:6px">心理關注</span>`:''}
+              ${(m.urgency_flags||[]).includes('pain_attention')?`<span style="background:#fff8e1;color:#f57f17;border:1px solid #ffe082;padding:1px 6px;border-radius:6px">疼痛關注</span>`:''}
+            </div>
+            ${m.ttas_summary?`<div><b>摘要：</b>${escHtml(m.ttas_summary)}</div>`:''}
+            ${m.ttas_reasoning?`<div style="color:#888;margin-top:2px"><b>AI判斷：</b>${escHtml(m.ttas_reasoning)}</div>`:''}
+            <div style="margin-top:3px"><b>分流至：</b>${m.route==='attending'?'主治醫師':m.route==='resident'?'住院醫師':'護理師'}</div>
+          </div>` : '';
         return `
           <div style="padding:12px 14px;border-radius:12px;margin-bottom:10px;
                       background:${m.replied ? '#fafafa' : '#fffbf0'};
@@ -2297,11 +2557,19 @@ function openHistoryModal() {
               <div style="display:flex;align-items:center;gap:6px">
                 <span style="font-size:1rem">${icon}</span>
                 <span style="font-size:0.72rem;font-weight:700;color:#888">${m.emotion || ''}</span>
+                ${lvl?`<span style="font-size:0.68rem;background:${LVLCOLOR[lvl]||'#9e9e9e'};color:${lvl>=4?'#555':'#fff'};padding:1px 7px;border-radius:8px;font-weight:700">${LVLICON[lvl]||''} L${lvl}</span>`:''}
               </div>
-              <span style="font-size:0.68rem;color:#bbb">${m.timestamp || ''}</span>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:0.68rem;color:#bbb">${m.timestamp || ''}</span>
+                ${lvl?`<button onclick="const el=document.getElementById('aiDetail_${i}');el.style.display=el.style.display==='none'?'block':'none'"
+                  style="padding:2px 8px;font-size:0.65rem;border:1px solid #c5cae9;border-radius:8px;
+                         background:#f3f4ff;color:#3949ab;cursor:pointer;font-family:inherit;flex-shrink:0">
+                  🔍 AI分流</button>`:''}
+              </div>
             </div>
             <div style="font-size:0.88rem;color:#333;line-height:1.55">${escHtml(m.text || '')}</div>
             ${replyBlock}
+            ${aiDetail}
           </div>`;
       }).join('');
     }
@@ -2316,6 +2584,100 @@ function closeHistoryModal() {
   document.getElementById('historyModal').style.display        = 'none';
 }
 
+// ── 護理師：開啟病患歷史 + AI分流 Modal ──────────────────────────────
+async function openNurseHistoryModal(bed) {
+  const overlay = document.getElementById('historyModalOverlay');
+  const modal   = document.getElementById('historyModal');
+  const list    = document.getElementById('historyModalList');
+  const meta    = document.getElementById('historyModalMeta');
+  if (!modal) return;
+
+  if (meta) meta.textContent = `${bed}號病房 · 載入中…`;
+  if (list) list.innerHTML = '<div style="text-align:center;padding:24px;color:#bbb;font-size:.85rem">載入中…</div>';
+  overlay.style.display = 'block';
+  modal.style.display   = 'flex';
+
+  try {
+    const data = await api.getPatientByBed(bed);
+    const msgs = (data.messages || []).sort((a, b) =>
+      new Date(a.timestamp.replace(/\//g,'-')) - new Date(b.timestamp.replace(/\//g,'-'))
+    );
+    const total  = msgs.length;
+    const unread = msgs.filter(m => !m.replied).length;
+    if (meta) meta.textContent = `${bed}號病房 · 共 ${total} 則・${unread > 0 ? unread + ' 則待回覆' : '全部已回覆'}`;
+
+    const LVLCOLOR = {1:'#b71c1c',2:'#e53935',3:'#ff6f00',4:'#ffc107',5:'#9e9e9e'};
+    const LVLICON  = {1:'🔴',2:'🟠',3:'🟡',4:'🟢',5:'⚪'};
+    const LVLNAME  = {1:'復甦急救',2:'危急',3:'緊急',4:'次緊急',5:'非緊急'};
+    const emotionEmoji = { '開心':'😊','難過':'😟','焦慮':'😰','有問題':'🤔' };
+    const recent = msgs.slice(-5);
+
+    if (list) {
+      list.innerHTML = recent.length ? recent.map((m, i) => {
+        const icon = emotionEmoji[m.emotion] || '';
+        const lvl  = m.ttas_level;
+        const replierLabel2 = m.reply_by_role === 'nurse' ? '護理師回覆'
+          : m.reply_by_role === 'resident' ? '住院醫師回覆'
+          : m.reply_by_role === 'attending' ? '主治醫師回覆'
+          : '醫護回覆';
+        const replyBg2   = m.reply_by_role === 'nurse'     ? '#f0fff4'
+          : m.reply_by_role === 'attending'                ? '#f3f0ff' : '#f0f8ff';
+        const replyBord2 = m.reply_by_role === 'nurse'     ? '#43a047'
+          : m.reply_by_role === 'attending'                ? '#7b1fa2' : '#4a90d9';
+        const replyCl2   = m.reply_by_role === 'nurse'     ? '#2e7d32'
+          : m.reply_by_role === 'attending'                ? '#6a1b9a' : '#4a90d9';
+        const replyBlock = m.replied && m.reply_text
+          ? `<div style="margin-top:8px;padding:8px 12px;background:${replyBg2};border-radius:8px;
+                         border-left:3px solid ${replyBord2};font-size:0.82rem;color:#333;line-height:1.5">
+               <div style="font-size:0.68rem;color:${replyCl2};font-weight:700;margin-bottom:3px">↩ ${replierLabel2}</div>
+               ${escHtml(m.reply_text)}</div>`
+          : `<div style="margin-top:6px;font-size:0.72rem;color:#e67e22;font-weight:700">⏳ 尚未回覆</div>`;
+        const aiDetail = lvl ? `
+          <div id="nai_${i}" style="display:none;margin-top:8px;padding:8px 10px;background:#f8f9ff;
+               border-radius:8px;border:1px solid #e0e4ff;font-size:0.75rem;color:#444;line-height:1.6">
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px">
+              <span style="background:${LVLCOLOR[lvl]||'#9e9e9e'};color:${lvl>=4?'#555':'#fff'};
+                           padding:1px 8px;border-radius:8px;font-weight:700;font-size:0.72rem">
+                ${LVLICON[lvl]||'⚪'} L${lvl} ${LVLNAME[lvl]||''}</span>
+              ${m.nrs_estimated!=null?`<span style="background:#fff3e0;color:#e65100;border:1px solid #ffb74d;padding:1px 6px;border-radius:6px">NRS ${m.nrs_estimated}/10</span>`:''}
+              ${m.bsrs_estimated!=null?`<span style="background:#f3e5f5;color:#6a1b9a;border:1px solid #ce93d8;padding:1px 6px;border-radius:6px">BSRS ${m.bsrs_estimated}/20</span>`:''}
+              ${m.pcs_level!=null?`<span style="background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;padding:1px 6px;border-radius:6px">PCS L${m.pcs_level}</span>`:''}
+              ${m.self_harm_detected?`<span style="background:#ffebee;color:#c62828;border:1px solid #ef9a9a;padding:1px 6px;border-radius:6px;font-weight:700">⚠️ 自傷意念</span>`:''}
+              ${(m.urgency_flags||[]).includes('bsrs_attention')?`<span style="background:#fce4ec;color:#880e4f;border:1px solid #f48fb1;padding:1px 6px;border-radius:6px">心理關注</span>`:''}
+              ${(m.urgency_flags||[]).includes('pain_attention')?`<span style="background:#fff8e1;color:#f57f17;border:1px solid #ffe082;padding:1px 6px;border-radius:6px">疼痛關注</span>`:''}
+            </div>
+            ${m.ttas_summary?`<div><b>摘要：</b>${escHtml(m.ttas_summary)}</div>`:''}
+            ${m.ttas_reasoning?`<div style="color:#888;margin-top:2px"><b>AI判斷：</b>${escHtml(m.ttas_reasoning)}</div>`:''}
+            <div style="margin-top:3px"><b>分流至：</b>${m.route==='attending'?'主治醫師':m.route==='resident'?'住院醫師':'護理師'}</div>
+          </div>` : '';
+        return `
+          <div style="padding:12px 14px;border-radius:12px;margin-bottom:10px;
+                      background:${m.replied?'#fafafa':'#fffbf0'};
+                      border:1.5px solid ${m.replied?'#eee':'#ffe0a0'}">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:1rem">${icon}</span>
+                <span style="font-size:0.72rem;font-weight:700;color:#888">${m.emotion||''}</span>
+                ${lvl?`<span style="font-size:0.68rem;background:${LVLCOLOR[lvl]||'#9e9e9e'};color:${lvl>=4?'#555':'#fff'};padding:1px 7px;border-radius:8px;font-weight:700">${LVLICON[lvl]||''} L${lvl}</span>`:''}
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:0.68rem;color:#bbb">${m.timestamp||''}</span>
+                ${lvl?`<button onclick="const el=document.getElementById('nai_${i}');el.style.display=el.style.display==='none'?'block':'none'"
+                  style="padding:2px 8px;font-size:0.65rem;border:1px solid #c5cae9;border-radius:8px;
+                         background:#f3f4ff;color:#3949ab;cursor:pointer;font-family:inherit;flex-shrink:0">
+                  🔍 AI分流</button>`:''}
+              </div>
+            </div>
+            <div style="font-size:0.88rem;color:#333;line-height:1.55">${escHtml(m.text||'')}</div>
+            ${replyBlock}${aiDetail}
+          </div>`;
+      }).join('')
+      : '<div style="text-align:center;padding:32px;color:#aaa;font-size:.85rem">尚無對話紀錄</div>';
+    }
+  } catch {
+    if (list) list.innerHTML = '<div style="text-align:center;padding:24px;color:#e53935;font-size:.85rem">載入失敗</div>';
+  }
+}
 
 // ── 選擇要回覆的訊息 ──
 function selectDoctorMsg(msgId) {
@@ -2332,6 +2694,19 @@ function selectDoctorMsg(msgId) {
       emoBadge.style.display = 'inline-flex';
     } else {
       emoBadge.style.display = 'none';
+    }
+  }
+  // 更新 TTAS badge
+  const ttasBadgeEl = document.getElementById('doctorTtasBadge');
+  if (ttasBadgeEl) {
+    if (msg.ttas_level) {
+      const LC = { 1:'#e53935', 2:'#ff6f00', 3:'#ffc107', 4:'#9e9e9e' };
+      const LI = { 1:'🔴', 2:'🟠', 3:'🟡', 4:'⚪' };
+      const lvl = msg.ttas_level;
+      ttasBadgeEl.innerHTML = `<span style="background:${LC[lvl]};color:${lvl===3?'#555':'#fff'};padding:3px 10px;border-radius:12px;font-size:.78rem;font-weight:700">${LI[lvl]} Level ${lvl}｜${msg.ttas_category || ''}${msg.ttas_summary ? '：' + msg.ttas_summary : ''}</span>`;
+      ttasBadgeEl.style.display = 'block';
+    } else {
+      ttasBadgeEl.style.display = 'none';
     }
   }
   // 更新 chip 選中樣式
@@ -2805,6 +3180,153 @@ async function thankVolunteer() {
   }
 }
 
+// ══ 任意視界：點讚志工 ════════════════════════════════════════
+async function likeCrowdVideo() {
+  if (!_currentCrowdTaskId) return;
+  const btn = document.getElementById('btnLikeVideo');
+  if (btn) { btn.disabled = true; btn.classList.add('liked'); btn.textContent = '👍 已點讚！'; }
+  try {
+    const patientId = state.currentUser?.id || 'patient_503B';
+    await fetch(`/api/crowd/like/${_currentCrowdTaskId}?patient_id=${patientId}`, { method: 'POST' });
+    showToast('👍 點讚成功！志工將收到通知並獲得 +5 點');
+  } catch {
+    showToast('⚠️ 點讚送出失敗');
+    if (btn) { btn.disabled = false; btn.classList.remove('liked'); btn.textContent = '👍 點讚'; }
+  }
+}
+
+// ══ 任意視界：回饋感謝 Modal ══════════════════════════════════
+let _fbVoiceRec   = null;
+let _fbVoiceBlob  = null;
+let _fbVoiceTimer = null;
+let _fbVoiceSec   = 0;
+let _fbPhotoBlob  = null;
+
+let _fbAddFriend = false;
+
+function toggleFbFriend() {
+  _fbAddFriend = !_fbAddFriend;
+  const toggle = document.getElementById('fbFriendToggle');
+  const knob   = document.getElementById('fbFriendKnob');
+  const label  = document.getElementById('fbFriendLabel');
+  if (toggle) toggle.style.background = _fbAddFriend ? '#43a047' : '#ccc';
+  if (knob)   knob.style.left = _fbAddFriend ? '22px' : '2px';
+  if (label)  label.textContent = _fbAddFriend ? '✅ 申請加好友' : '不加好友';
+}
+
+function openFeedbackModal() {
+  if (!_currentCrowdTaskId) return;
+  // 重置
+  _fbVoiceBlob = null;
+  _fbPhotoBlob = null;
+  _fbAddFriend = false;
+  const toggle = document.getElementById('fbFriendToggle');
+  const knob   = document.getElementById('fbFriendKnob');
+  const label  = document.getElementById('fbFriendLabel');
+  if (toggle) toggle.style.background = '#ccc';
+  if (knob)   knob.style.left = '2px';
+  if (label)  label.textContent = '不加好友';
+  const textEl = document.getElementById('feedbackText');
+  if (textEl) textEl.value = '';
+  const voicePrev = document.getElementById('fbVoicePreview');
+  if (voicePrev) { voicePrev.src = ''; voicePrev.style.display = 'none'; }
+  const voiceBtn = document.getElementById('btnFbVoiceRec');
+  if (voiceBtn) voiceBtn.textContent = '🎙 開始錄音';
+  const voiceTimer = document.getElementById('fbVoiceTimer');
+  if (voiceTimer) { voiceTimer.style.display = 'none'; voiceTimer.textContent = '0:00'; }
+  const photoPrev = document.getElementById('fbPhotoPreview');
+  if (photoPrev) photoPrev.style.display = 'none';
+  const photoInput = document.getElementById('fbPhotoInput');
+  if (photoInput) photoInput.value = '';
+  document.getElementById('feedbackModal').style.display = 'flex';
+}
+
+function closeFeedbackModal() {
+  if (_fbVoiceRec && _fbVoiceRec.state === 'recording') _fbVoiceRec.stop();
+  document.getElementById('feedbackModal').style.display = 'none';
+}
+
+function toggleFeedbackVoice() {
+  if (_fbVoiceRec && _fbVoiceRec.state === 'recording') {
+    _fbVoiceRec.stop();
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+      _fbVoiceBlob = null;
+      _fbVoiceSec = 0;
+      clearInterval(_fbVoiceTimer);
+      const timerEl = document.getElementById('fbVoiceTimer');
+      timerEl.style.display = 'inline';
+      timerEl.textContent = '0:00';
+      _fbVoiceTimer = setInterval(() => {
+        _fbVoiceSec++;
+        const m = Math.floor(_fbVoiceSec / 60), s = _fbVoiceSec % 60;
+        timerEl.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+      }, 1000);
+      const chunks = [];
+      _fbVoiceRec = new MediaRecorder(stream);
+      _fbVoiceRec.ondataavailable = e => chunks.push(e.data);
+      _fbVoiceRec.onstop = () => {
+        clearInterval(_fbVoiceTimer);
+        stream.getTracks().forEach(t => t.stop());
+        _fbVoiceBlob = new Blob(chunks, { type: 'audio/webm' });
+        const url = URL.createObjectURL(_fbVoiceBlob);
+        const prev = document.getElementById('fbVoicePreview');
+        prev.src = url;
+        prev.style.display = 'block';
+        document.getElementById('btnFbVoiceRec').textContent = '🔁 重新錄製';
+        document.getElementById('fbVoiceTimer').style.display = 'none';
+      };
+      _fbVoiceRec.start();
+      document.getElementById('btnFbVoiceRec').textContent = '⏹ 停止錄音';
+    })
+    .catch(() => showToast('⚠️ 無法存取麥克風'));
+}
+
+function triggerFeedbackPhoto() {
+  document.getElementById('fbPhotoInput')?.click();
+}
+
+function previewFeedbackPhoto(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  _fbPhotoBlob = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = document.getElementById('fbPhotoImg');
+    img.src = e.target.result;
+    document.getElementById('fbPhotoPreview').style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitFeedback() {
+  if (!_currentCrowdTaskId) return;
+  const message = document.getElementById('feedbackText')?.value.trim() || '';
+  if (!message && !_fbVoiceBlob && !_fbPhotoBlob) {
+    showToast('⚠️ 請至少填寫文字、錄音或照片其中一項');
+    return;
+  }
+  const patientId = state.currentUser?.id || 'patient_503B';
+  const fd = new FormData();
+  fd.append('task_id', _currentCrowdTaskId);
+  fd.append('patient_id', patientId);
+  fd.append('message', message);
+  fd.append('add_friend', _fbAddFriend ? '1' : '0');
+  if (_fbVoiceBlob) fd.append('voice', _fbVoiceBlob, 'feedback_voice.webm');
+  if (_fbPhotoBlob) fd.append('photo', _fbPhotoBlob, _fbPhotoBlob.name || 'photo.jpg');
+  try {
+    const res = await fetch('/api/crowd/feedback', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '送出失敗');
+    closeFeedbackModal();
+    showToast(_fbAddFriend ? '💌 感謝已送達！志工將收到您的好友邀請 💚' : '💌 感謝已送達志工！');
+  } catch {
+    showToast('⚠️ 回饋送出失敗，請再試一次');
+  }
+}
+
 // ══ 病患端：載入視覺處方通知 ══════════════════════════════
 let _rxPrescriptions = [];
 
@@ -2856,15 +3378,13 @@ async function loadPrescriptionFulfillmentVideos() {
     }
     if (noVideo) noVideo.style.display = 'none';
     list.innerHTML = tasks.map(t => {
-      const isReview = t.status === 'review';
       return `
       <div style="flex-shrink:0;width:140px;border-radius:10px;overflow:hidden;
-                  background:${isReview ? '#f5f5f5' : '#f0f8f5'};
-                  border:1.5px solid ${isReview ? 'rgba(0,0,0,0.1)' : 'rgba(45,143,97,0.2)'};
-                  cursor:${isReview ? 'not-allowed' : 'pointer'};
-                  opacity:${isReview ? '0.65' : '1'}"
-           ${isReview ? '' : `onclick="closeRxPanel();playCrowdVideoFromPrescription('${t.video_url}','${t.id}','${t.location}')"`}>
-        <div style="background:${isReview ? '#aaa' : '#2d8f61'};padding:6px 8px;font-size:0.65rem;color:white;font-weight:700;
+                  background:#f0f8f5;
+                  border:1.5px solid rgba(45,143,97,0.2);
+                  cursor:pointer"
+           onclick="closeRxPanel();playCrowdVideoFromPrescription('${t.video_url}','${t.id}','${t.location}')">
+        <div style="background:#2d8f61;padding:6px 8px;font-size:0.65rem;color:white;font-weight:700;
                     white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
           📍 ${t.location}
         </div>
@@ -2872,8 +3392,8 @@ async function loadPrescriptionFulfillmentVideos() {
                     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">
           ${t.description}
         </div>
-        <div style="padding:3px 8px 6px;font-size:0.65rem;color:${isReview ? '#856404' : '#2d8f61'};font-weight:700">
-          ${isReview ? '⏳ 審核中' : '✅ 已完成'}
+        <div style="padding:3px 8px 6px;font-size:0.65rem;color:#2d8f61;font-weight:700">
+          ✅ 已完成
         </div>
       </div>`;
     }).join('');
@@ -2953,6 +3473,16 @@ document.getElementById('btnAIGenReply')?.addEventListener('click', async () => 
   const msgText = document.getElementById('patientMsgBubble')?.textContent || '';
   btn.disabled = true;
   btn.textContent = '🤖 生成中…';
+  // DEMO 快速模式：骨盆疼痛 + 呼吸喘 → 直接套用預設回覆
+  if (msgText.includes('骨盆') && (msgText.includes('呼吸') || msgText.includes('喘'))) {
+    await new Promise(r => setTimeout(r, 400));
+    document.getElementById('doctorReplyText').value =
+      '王先生您好，已收到您的訊息。骨盆疼痛合併呼吸不適需要立即評估，我會盡快到床邊為您檢查，請保持平躺休息，不要自行移動。';
+    showToast('🤖 AI 回覆草稿已生成，可修改後送出');
+    btn.disabled = false;
+    btn.textContent = '🤖 AI 生成回覆';
+    return;
+  }
   try {
     const res = await fetch('/api/doctor/ai-preview', {
       method: 'POST',
@@ -3055,10 +3585,9 @@ document.getElementById("btnSendReply")?.addEventListener("click", async () => {
     showToast("⚠️ 找不到待回覆訊息，請重新開啟病患頁面");
     return;
   }
-  const replyEta = document.getElementById("doctorReplyEta")?.value || "";
   try {
-    await api.sendDoctorReply(state.currentMsgId, finalText, replyEta);
-    showToast(replyEta ? `✅ 回覆已傳送，病患將看到預計時間：${replyEta}` : "✅ 回覆已傳送給病患");
+    await api.sendDoctorReply(state.currentMsgId, finalText, "");
+    showToast("✅ 回覆已傳送給病患");
     document.getElementById("llmPreview").style.display = "none";
     state.currentMsgId = null;
     await loadDoctorList();
@@ -3281,7 +3810,7 @@ function renderCrowdTasks(tasks) {
       ? `<span class="rx-task-badge">🏥 醫生處方</span>` : '';
     const isPrescription = t.task_type === 'prescription' || t.is_prescription;
     const statusBadge = isPrescription && t.status === 'review'
-      ? `<span style="font-size:0.65rem;padding:1px 6px;background:#fff3cd;color:#856404;border-radius:8px;font-weight:700">⏳ 醫生審核中</span>`
+      ? ``
       : isPrescription && t.status === 'adopted'
       ? `<span style="font-size:0.65rem;padding:1px 6px;background:#d4edda;color:#155724;border-radius:8px;font-weight:700">✅ 已採用</span>`
       : isPrescription && t.status === 'rejected'
@@ -3431,17 +3960,14 @@ async function submitYoutubeLink() {
     if (!res.ok) throw new Error(data.detail || '提交失敗');
 
     // 切換到成功畫面（重用現有成功區塊）
+    const completedTaskId = _selectedTaskId;
+    const uploadUserId = state.currentUser?.id || 'crowd_001';
     document.getElementById('modalYoutubeInput').style.display = 'none';
     document.getElementById('modalSuccess').style.display = 'block';
     document.getElementById('modalSuccessMsg').textContent =
-      `YouTube 影片已提交！累積獎勵：+${data.points_earned} 點`;
-    document.getElementById('clipMatchResult').style.display = 'none';
-    document.getElementById('clipMatchLoading').style.display = 'none';
-    // 關閉 modal 並刷新任務列表（任務提交後消失）
-    setTimeout(() => {
-      closeUploadModal();
-      loadCrowdData();
-    }, 1500);
+      `YouTube 影片已提交！AI 分析中，積分即將核發…`;
+    // CLIP/CLAP 分析（與檔案上傳流程一致，分析完核發積分）
+    runClipMatchAnalysis(completedTaskId, uploadUserId);
   } catch (e) {
     showToast(`⚠️ ${e.message}`);
   } finally {
@@ -3533,6 +4059,45 @@ async function runClipMatchAnalysis(taskId, userId) {
   const suggestRowEl   = document.getElementById('clipSuggestionsRow');
   const suggestListEl  = document.getElementById('clipSuggestionsList');
   if (!loadingEl || !resultEl) return;
+
+  // ── DEMO 快速模式：義大遊樂世界 / 摩天輪 ──────────────────────────
+  const demoTask = _selectedTaskData;
+  const isDemo = demoTask &&
+    (demoTask.location || '').includes('義大遊樂世界') &&
+    (demoTask.description || '').includes('摩天輪');
+  if (isDemo) {
+    if (audioRowEl)   audioRowEl.style.display  = 'none';
+    if (suggestRowEl) suggestRowEl.style.display = 'none';
+    loadingEl.style.display = 'block';
+    resultEl.style.display  = 'none';
+    // 模擬短暫分析中
+    await new Promise(r => setTimeout(r, 300));
+    loadingEl.style.display = 'none';
+    // 套用預設結果
+    const pct = 92, color = '#2d8f61';
+    if (barEl)   { barEl.style.width = '92%'; barEl.style.background = color; }
+    if (scoreEl) { scoreEl.textContent = '92%'; scoreEl.style.color = color; }
+    if (labelEl) { labelEl.textContent = '✅ 高度符合'; labelEl.style.color = color; }
+    if (descEl)  descEl.textContent = '比對描述：摩天輪';
+    labelEl?.insertAdjacentHTML('afterend',
+      `<div class="reward-hint" style="margin-top:5px;font-size:0.74rem;color:#2d8f61;font-weight:700">🎁 符合內容要求，積分已完整發放！</div>`);
+    resultEl.style.display = 'block';
+    // 核發積分
+    try {
+      const finRes = await fetch(`/api/crowd/finalize_points/${encodeURIComponent(taskId)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, score_pct: 92 }),
+      }).then(r => r.json());
+      if (finRes.success) {
+        const msgEl = document.getElementById('modalSuccessMsg');
+        if (msgEl) msgEl.textContent = `視訊已提交！累積獎勵：+${finRes.points_earned} 點`;
+        showToast(`🎁 積分核發：+${finRes.points_earned} 點`);
+        await loadCrowdData();
+      }
+    } catch { /* 靜默 */ }
+    return;
+  }
+  // ── 正常 AI 分析流程 ───────────────────────────────────────────────
 
   // 重置
   if (audioRowEl)   audioRowEl.style.display   = 'none';
@@ -3940,6 +4505,16 @@ const observers = new MutationObserver(() => {
     stopTherapeuticIframe();   // 停止療癒精選影片
     resetToPlaceholder();
     closeEmdr();               // 離開任意視界時完整清除 EMDR（含 AudioContext）
+  }
+
+  // 離開醫聲相伴時，重置 EMDR 統計
+  if (_lastActiveScreen === 'screen-medical') {
+    emdrWatchStop();
+    _emdr.triggered = false;
+    _emdr.msgTimestamps = [];
+    _emdr.camTimestamps = [];
+    const overlay = document.getElementById('emdrOverlay');
+    if (overlay) overlay.style.display = 'none';
   }
 
   _lastActiveScreen = id;
@@ -4736,21 +5311,68 @@ function renderNotifList(notifs) {
     return;
   }
   el.innerHTML = notifs.map(n => {
+    const unreadDot = !n.read ? '<span class="ni-unread-dot"></span>' : '';
+    const delBtn = `<button class="ni-del" onclick="event.stopPropagation();deleteNotif('${n.id}',this)" title="刪除">✕</button>`;
     if (n.type === 'rating') {
       const stars = '⭐'.repeat(n.stars || 5);
-      const unreadDot = !n.read ? '<span class="ni-unread-dot"></span>' : '';
       const voice = n.voice_url
         ? `<audio controls src="${n.voice_url}" style="width:100%;height:30px;margin-top:6px"></audio>` : '';
       return `
         <div class="notif-item" onclick="markNotifRead('${n.id}',this)">
           <div class="ni-header">
             ${unreadDot}
-            <span class="ni-name">${n.from_name}</span>
+            <span class="ni-name">${escHtml(n.from_name)}</span>
             <span class="ni-stars">${stars}</span>
             <span class="ni-time">${n.timestamp}</span>
+            ${delBtn}
           </div>
-          ${n.message ? `<div class="ni-msg">「${n.message}」</div>` : ''}
+          ${n.message ? `<div class="ni-msg">「${escHtml(n.message)}」</div>` : ''}
           ${voice}
+        </div>`;
+    }
+    if (n.type === 'like') {
+      return `
+        <div class="notif-item" onclick="markNotifRead('${n.id}',this)"
+          style="border-left:3px solid #f59e0b;background:#fffbeb">
+          <div class="ni-header">
+            ${unreadDot}
+            <span class="ni-name">👍 ${escHtml(n.from_name)} 為您的影片按讚了！</span>
+            <span class="ni-time">${n.timestamp}</span>
+            ${delBtn}
+          </div>
+          <div class="ni-msg" style="color:#b45309">+5 點已加入您的積分 ✨</div>
+        </div>`;
+    }
+    if (n.type === 'thank') {
+      return `
+        <div class="notif-item" onclick="markNotifRead('${n.id}',this)"
+          style="border-left:3px solid #e74c3c;background:#fff5f5">
+          <div class="ni-header">
+            ${unreadDot}
+            <span class="ni-name">💝 ${escHtml(n.from_name)} 向您表達了感謝！</span>
+            <span class="ni-time">${n.timestamp}</span>
+            ${delBtn}
+          </div>
+          <div class="ni-msg" style="color:#c0392b">+10 點已加入您的積分 ✨</div>
+        </div>`;
+    }
+    if (n.type === 'feedback') {
+      const voice = n.voice_url
+        ? `<audio controls src="${n.voice_url}" style="width:100%;height:30px;margin-top:6px"></audio>` : '';
+      const photo = n.photo_url
+        ? `<img src="${n.photo_url}" style="max-width:100%;max-height:120px;border-radius:8px;margin-top:6px;object-fit:cover">` : '';
+      return `
+        <div class="notif-item" onclick="markNotifRead('${n.id}',this)"
+          style="border-left:3px solid #e74c3c;background:#fff5f5">
+          <div class="ni-header">
+            ${unreadDot}
+            <span class="ni-name">💌 ${escHtml(n.from_name)} 傳來感謝回饋</span>
+            <span class="ni-time">${n.timestamp}</span>
+            ${delBtn}
+          </div>
+          ${n.message ? `<div class="ni-msg">「${escHtml(n.message)}」</div>` : ''}
+          ${voice}
+          ${photo}
         </div>`;
     }
     if (n.type === 'friend_request') {
@@ -4760,6 +5382,7 @@ function renderNotifList(notifs) {
             <span class="ni-unread-dot"></span>
             <span>💬 <b>${n.from_name}</b> 想加您為好友</span>
             <span class="ni-time">${n.timestamp}</span>
+            ${delBtn}
           </div>
           ${n.message ? `<div class="ni-msg">「${n.message}」</div>` : ''}
           <div class="ni-actions">
@@ -4770,6 +5393,22 @@ function renderNotifList(notifs) {
     }
     return '';
   }).join('');
+}
+
+async function deleteNotif(id, el) {
+  const item = el.closest('.notif-item');
+  if (item) { item.style.opacity = '0'; item.style.transition = 'opacity 0.2s'; setTimeout(() => item.remove(), 200); }
+  await fetch(`/api/notifications/${id}`, { method: 'DELETE' }).catch(() => {});
+  const uid = state.currentUser?.id;
+  if (uid) {
+    fetch(`/api/notifications/${uid}`).then(r => r.json()).then(data => {
+      const n = data.unread_total || 0;
+      ['notifBadge', 'patientNotifBadge'].forEach(bid => {
+        const b = document.getElementById(bid);
+        if (b) { b.style.display = n > 0 ? 'flex' : 'none'; b.textContent = n > 9 ? '9+' : String(n); }
+      });
+    }).catch(() => {});
+  }
 }
 
 async function markNotifRead(id, el) {
@@ -5007,79 +5646,72 @@ function renderPatientNotifList(notifs) {
   }
   el.innerHTML = notifs.map(n => {
     const unreadDot = !n.read ? '<span class="ni-unread-dot"></span>' : '';
+    const delBtn = `<button class="ni-del" onclick="event.stopPropagation();deleteNotif('${n.id}',this)" title="刪除">✕</button>`;
     if (n.type === 'doctor_reply') {
       const replyPreview = (n.reply_text || '').slice(0, 40);
+      const _rRole = n.reply_by_role || 'attending';
+      const _rBg     = _rRole === 'nurse' ? '#f3e5f5' : _rRole === 'resident' ? '#e3f2fd' : '#e8f5e9';
+      const _rColor  = _rRole === 'nurse' ? '#7b1fa2' : _rRole === 'resident' ? '#1565c0' : '#2d8f61';
+      const _rIcon   = _rRole === 'nurse' ? '👩‍⚕️' : '👨‍⚕️';
+      const _rLabel  = _rRole === 'nurse' ? '護理師' : _rRole === 'resident' ? '住院醫師' : '主治醫師';
       const etaHtml = n.reply_eta
         ? `<div class="ni-msg" style="color:#e67e22;font-weight:600">⏰ 醫師預計於「${escHtml(n.reply_eta)}」回覆您</div>`
         : '';
       return `
-        <div class="notif-item" onclick="markPatientNotifRead('${n.id}',this)">
+        <div class="notif-item" onclick="markPatientNotifRead('${n.id}',this)" style="border-left:3px solid ${_rColor}">
           <div class="ni-header">
             ${unreadDot}
-            <span class="ni-name">👨‍⚕️ 醫師回覆了您的留言</span>
+            <span class="ni-name">${_rIcon} ${_rLabel}回覆了您的留言</span>
             <span class="ni-time">${n.timestamp}</span>
+            ${delBtn}
           </div>
           ${n.message_preview ? `<div class="ni-msg">您：「${escHtml(n.message_preview)}…」</div>` : ''}
           ${etaHtml}
-          ${replyPreview ? `<div class="ni-msg" style="color:#2d8f61">↩ 醫師：「${escHtml(replyPreview)}${n.reply_text.length > 40 ? '…' : ''}」</div>` : ''}
+          ${replyPreview ? `<div class="ni-msg" style="color:${_rColor}">↩ ${_rLabel}：「${escHtml(replyPreview)}${n.reply_text.length > 40 ? '…' : ''}」</div>` : ''}
           <button onclick="event.stopPropagation();closePatientFriendPanel();document.getElementById('btnMedical')?.click()"
             style="margin-top:6px;padding:4px 10px;border-radius:10px;border:none;
-                   background:#e8f5e9;color:#2d8f61;font-size:0.72rem;font-weight:700;cursor:pointer;font-family:inherit">
+                   background:${_rBg};color:${_rColor};font-size:0.72rem;font-weight:700;cursor:pointer;font-family:inherit">
             查看完整回覆 →
           </button>
         </div>`;
     }
     if (n.type === 'eta_notice') {
-      const senderName = n.doctor_name || '醫護人員';
+      const senderName = n.doctor_name || '護理師';
       return `
         <div class="notif-item" onclick="markPatientNotifRead('${n.id}',this)">
           <div class="ni-header">
             ${unreadDot}
-            <span class="ni-name">⏰ 預計回覆時間通知</span>
+            <span class="ni-name">🔔 護理師通知</span>
             <span class="ni-time">${n.timestamp}</span>
+            ${delBtn}
           </div>
           <div class="ni-msg" style="color:#e67e22;font-weight:600">
-            ${escHtml(senderName)} 預計將於 <strong>${escHtml(n.eta)}</strong> 回覆您，請耐心等候 🙏
+            ${escHtml(senderName)}已收到您的訊息，將盡快為您處理，請耐心等候 🙏
+          </div>
+          <div class="ni-msg" style="color:#2e7d32;font-size:0.85rem;margin-top:4px">
+            等待期間不妨前往「🌍 任意視界」，欣賞世界各地即時風景，放鬆心情 😊
           </div>
         </div>`;
     }
     if (n.type === 'task_upload') {
-      const isPrescription = n.is_prescription;
-      const videoData = n.video_url ? encodeURIComponent(JSON.stringify({ url: n.video_url, location: n.location || '' })) : '';
-      const title = isPrescription
-        ? `🏥 您的視覺處方影片已備妥`
-        : `🎬 ${escHtml(n.uploader_name)} 上傳了影片`;
+      const taskId = n.id.startsWith('upload_') ? n.id.slice(7) : '';
+      const videoData = n.video_url ? encodeURIComponent(JSON.stringify({ url: n.video_url, location: n.location || '', task_id: taskId })) : '';
+      const title = `🎬 ${escHtml(n.uploader_name)} 為您上傳了影片`;
       return `
-        <div class="notif-item" onclick="markPatientNotifRead('${n.id}',this)">
+        <div class="notif-item" onclick="markPatientNotifRead('${n.id}',this)"
+          style="border-left:3px solid #f59e0b;background:#fffbeb">
           <div class="ni-header">
             ${unreadDot}
             <span class="ni-name">${title}</span>
             <span class="ni-time">${n.timestamp}</span>
+            ${delBtn}
           </div>
-          <div class="ni-msg">📍 ${escHtml(n.location || '')}</div>
+          ${n.location ? `<div class="ni-msg">📍 ${escHtml(n.location)}</div>` : ''}
           ${n.description ? `<div class="ni-msg" style="color:#666">${escHtml(n.description)}</div>` : ''}
           ${videoData ? `<button onclick="event.stopPropagation();goToNotifVideo('${videoData}')"
             style="margin-top:6px;padding:4px 10px;border-radius:10px;border:none;
-                   background:${isPrescription ? '#f0faf4' : '#e8f0fe'};
-                   color:${isPrescription ? '#27ae60' : '#3a7bd5'};
+                   background:#fef3c7;color:#b45309;
                    font-size:0.72rem;font-weight:700;cursor:pointer;font-family:inherit">
-            ▶ 前往欣賞影片 →
-          </button>` : ''}
-        </div>`;
-    }
-    if (n.type === 'wish_fulfilled') {
-      const videoData = n.video_url ? encodeURIComponent(JSON.stringify({ url: n.video_url, location: n.place_name || '' })) : '';
-      return `
-        <div class="notif-item" onclick="markPatientNotifRead('${n.id}',this)">
-          <div class="ni-header">
-            ${unreadDot}
-            <span class="ni-name">🌟 ${escHtml(n.fulfiller_name)} 完成了您的心願！</span>
-            <span class="ni-time">${n.timestamp}</span>
-          </div>
-          <div class="ni-msg">📍 ${escHtml(n.place_name || '')}</div>
-          ${videoData ? `<button onclick="event.stopPropagation();goToNotifVideo('${videoData}')"
-            style="margin-top:6px;padding:4px 10px;border-radius:10px;border:none;
-                   background:#fff3e0;color:#e67e22;font-size:0.72rem;font-weight:700;cursor:pointer;font-family:inherit">
             ▶ 前往欣賞影片 →
           </button>` : ''}
         </div>`;
@@ -5091,6 +5723,7 @@ function renderPatientNotifList(notifs) {
             <span class="ni-unread-dot"></span>
             <span>💬 <b>${escHtml(n.from_name)}</b> 想加您為好友</span>
             <span class="ni-time">${n.timestamp}</span>
+            ${delBtn}
           </div>
           ${n.message ? `<div class="ni-msg">「${escHtml(n.message)}」</div>` : ''}
           <div class="ni-actions">
@@ -5155,6 +5788,18 @@ function goToNotifVideo(encodedData) {
     }
     if (controls) controls.style.display = '';
     if (title) title.textContent = `▶️ ${v.location}`;
+    // 設定任務 ID 以啟用點讚 / 回饋
+    _currentCrowdTaskId = v.task_id || null;
+    _currentCrowdLocation = v.location || '';
+    const _lBtn = document.getElementById('btnLikeVideo');
+    const _fBtn = document.getElementById('btnFeedbackVideo');
+    if (_currentCrowdTaskId) {
+      if (_lBtn) { _lBtn.style.display = 'inline-flex'; _lBtn.disabled = false; _lBtn.classList.remove('liked'); _lBtn.textContent = '👍 點讚'; }
+      if (_fBtn)   _fBtn.style.display = 'inline-flex';
+    } else {
+      if (_lBtn) _lBtn.style.display = 'none';
+      if (_fBtn) _fBtn.style.display = 'none';
+    }
     stopGlobeAnim();
     showToast(`▶️ 正在播放：${v.location}`);
   }, 600);
@@ -5234,422 +5879,8 @@ function startCrowdNotifPoll() {
   _notifPollTimer = setInterval(() => loadNotifications(uid), 30000);
 }
 
-// ════════════════════════════════════════════════
-// 病患心願清單（病患端）
-// ════════════════════════════════════════════════
-
-function openWishlistModal() {
-  document.getElementById("wishlistOverlay").style.display = "block";
-  document.getElementById("wishlistModal").style.display = "flex";
-  loadPatientWishlist();
-}
-
-function closeWishlistModal() {
-  document.getElementById("wishlistOverlay").style.display = "none";
-  document.getElementById("wishlistModal").style.display = "none";
-}
-
-function playWishFulfilledVideo(videoUrl, placeName, wishId) {
-  // 停止其他播放源
-  const camStream = document.getElementById('camStream');
-  if (camStream) { camStream.style.display = 'none'; camStream.src = ''; }
-  const ytPl = document.getElementById('crowdYoutubePlayer');
-  if (ytPl) { ytPl.style.display = 'none'; ytPl.src = ''; }
-  const tcIframe = document.getElementById('tcIframe');
-  if (tcIframe) tcIframe.remove();
-  _selectedCamId = null;
-
-  const player = document.getElementById('crowdVideoPlayer');
-  const placeholder = document.getElementById('camPlaceholder');
-  if (!player) return;
-  if (placeholder) placeholder.style.display = 'none';
-
-  player.src = videoUrl;
-  player.muted = _isMuted;
-  player.style.display = 'block';
-  player.style.zIndex = '5';
-  player.play().catch(e => console.warn('自動播放失敗:', e));
-
-  _currentCrowdTaskId = wishId || null;
-  const actionsDiv = document.getElementById('crowdVideoActions');
-  if (actionsDiv) actionsDiv.style.display = _currentCrowdTaskId ? 'flex' : 'none';
-  const thankBtn = document.getElementById('btnThankVolunteer');
-  if (thankBtn) { thankBtn.disabled = false; thankBtn.textContent = '💝 感謝志工'; }
-  const rateBtn3 = document.getElementById('btnRateVideo');
-  if (rateBtn3) { rateBtn3.disabled = false; rateBtn3.textContent = '⭐ 評分'; }
-
-  const badge = document.getElementById('videoLiveBadge');
-  const dot = document.getElementById('videoLiveDot');
-  const txt = document.getElementById('videoLiveText');
-  const controls = document.getElementById('videoControls');
-  const btnClose = document.getElementById('btnCloseStream');
-  const title = document.getElementById('videoPanelTitle');
-  if (badge && dot && txt) {
-    badge.style.display = '';
-    badge.style.background = 'rgba(245,166,35,0.92)';
-    badge.style.color = 'white';
-    dot.style.background = 'white';
-    txt.textContent = '心願成果';
-  }
-  if (controls) controls.style.display = '';
-  if (btnClose) btnClose.style.display = '';
-  if (title) title.textContent = `🌟 ${placeName}`;
-  stopGlobeAnim();
-  showToast(`▶️ 正在播放心願成果：${placeName}`);
-}
-
-async function loadPatientWishlist() {
-  const user = state.currentUser;
-  if (!user) return;
-  const container = document.getElementById("wishlistItems");
-  container.innerHTML = '<div style="text-align:center;padding:20px;color:#bbb;font-size:0.85rem">載入中…</div>';
-  try {
-    const data = await api.getPatientWishlist(user.id);
-    renderWishlist(data.wishlists || []);
-  } catch (e) {
-    container.innerHTML = '<div style="text-align:center;padding:20px;color:#e74c3c;font-size:0.83rem">載入失敗，請重試</div>';
-  }
-}
-
-function renderWishlist(wishes) {
-  const container = document.getElementById("wishlistItems");
-  if (!wishes.length) {
-    container.innerHTML = '<div style="text-align:center;padding:24px;color:#bbb;font-size:0.85rem">還沒有心願，許下第一個願望吧！🌟</div>';
-    return;
-  }
-  container.innerHTML = wishes.map(w => {
-    const claimed = !!w.claimed_by;
-    const fulfilled = !!w.fulfilled;
-
-    const preVoiceBlock = (claimed && w.pre_voice_url) ? `
-      <div style="margin-top:8px;padding:8px 10px;background:#fff8ee;border-radius:8px">
-        <div style="font-size:0.75rem;color:#f5a623;font-weight:700;margin-bottom:4px">🎙 志工出發前語音</div>
-        <audio controls src="${w.pre_voice_url}" style="width:100%;height:30px"></audio>
-      </div>` : '';
-
-    let statusBlock = '';
-    if (fulfilled) {
-      const safeUrl = encodeURIComponent(w.fulfilled_video_url);
-      const safeName = escHtml(w.place_name).replace(/'/g, '&apos;');
-      statusBlock = `
-        <div style="margin-top:10px;padding:12px;background:#f0fff4;border-radius:10px;border:1.5px solid #2d8f61">
-          <div style="font-size:0.8rem;font-weight:800;color:#2d8f61;margin-bottom:8px">🎉 志工已回傳成果！</div>
-          ${w.fulfilled_at ? `<div style="font-size:0.72rem;color:#aaa;margin-bottom:8px">📅 ${w.fulfilled_at}</div>` : ''}
-          <button onclick="closeWishlistModal();playWishFulfilledVideo(decodeURIComponent('${safeUrl}'),'${safeName}','${w.id}')"
-            style="width:100%;padding:9px;border-radius:8px;border:none;cursor:pointer;font-family:inherit;
-                   background:linear-gradient(135deg,#2d8f61,#3aaf7a);color:white;font-weight:800;
-                   font-size:0.82rem;box-shadow:0 2px 8px rgba(45,143,97,0.3)">
-            ▶ 在任意視界播放
-          </button>
-        </div>`;
-    } else if (claimed) {
-      statusBlock = `
-        <div style="margin-top:8px;padding:6px 10px;background:#fff3cd;border-radius:8px;font-size:0.78rem;color:#e67e22;font-weight:700">
-          🙌 已被認領，等待志工拍攝回傳中...
-        </div>`;
-    }
-
-    const borderColor = fulfilled ? '#2d8f61' : claimed ? '#ffc83a' : '#f0e8d8';
-    const bgColor = fulfilled ? '#f0fff4' : claimed ? '#fff8ee' : '#fffbf4';
-
-    return `
-      <div style="background:${bgColor};border:1.5px solid ${borderColor};
-                  border-radius:12px;padding:13px 15px;margin-bottom:10px;position:relative">
-        <div style="font-weight:800;font-size:0.95rem;color:#333;margin-bottom:4px">📍 ${escHtml(w.place_name)}</div>
-        ${w.description ? `<div style="font-size:0.82rem;color:#666;margin-bottom:6px">${escHtml(w.description)}</div>` : ''}
-        <div style="font-size:0.73rem;color:#aaa">🕐 ${w.created_at}</div>
-        ${preVoiceBlock}
-        ${statusBlock}
-        ${!claimed ? `<button onclick="deleteWish('${w.id}')"
-             style="position:absolute;top:10px;right:10px;background:#fee;border:1px solid #fcc;
-                    color:#e74c3c;border-radius:8px;padding:4px 10px;font-size:0.75rem;
-                    cursor:pointer;font-family:inherit;font-weight:700">🗑 刪除</button>` : ''}
-      </div>`;
-  }).join("");
-}
-
 function escHtml(str) {
   return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
-
-async function addWish() {
-  const user = state.currentUser;
-  if (!user) { showToast("請先登入"); return; }
-  const placeName = document.getElementById("wishPlaceInput").value.trim();
-  const desc = document.getElementById("wishDescInput").value.trim();
-  if (!placeName) { showToast("⚠️ 請填寫地點名稱"); return; }
-
-  const bed = user.bed ? user.bed + "號病房" : "未知病房";
-  try {
-    await api.addWishlist({
-      patient_id: user.id,
-      patient_name: user.name || "病患",
-      patient_bed: bed,
-      place_name: placeName,
-      description: desc,
-    });
-    document.getElementById("wishPlaceInput").value = "";
-    document.getElementById("wishDescInput").value = "";
-    showToast("🌟 心願已新增！志工將可認領");
-    loadPatientWishlist();
-  } catch (e) {
-    showToast("⚠️ 新增失敗：" + e.message);
-  }
-}
-
-function addWishForFriend() {
-  const placeName = document.getElementById("wishPlaceInput").value.trim();
-  const desc = document.getElementById("wishDescInput").value.trim();
-  if (!placeName) { showToast("⚠️ 請填寫地點名稱"); return; }
-
-  closeWishlistModal();
-
-  // 預填「指定親友拍攝」表單並跳轉
-  const locEl = document.getElementById('patientShareLocation');
-  const reqEl = document.getElementById('patientShareRequirements');
-  if (locEl) locEl.value = placeName;
-  if (reqEl) reqEl.value = desc;
-  _patientShareLatLng = null;
-  const hint = document.getElementById('patientShareMapHint');
-  if (hint) hint.style.display = 'flex';
-  const placeEl = document.getElementById('patientShareSelectedPlace');
-  if (placeEl) { placeEl.style.display = 'block'; placeEl.textContent = `📍 ${placeName}`; }
-  if (_patientShareMarker) _patientShareMarker.setPosition(null);
-  if (_patientShareInfoWindow) _patientShareInfoWindow.close();
-
-  goTo('screen-patient-share');
-  setTimeout(() => {
-    _initPatientShareMap();
-    if (_patientShareMap) google.maps.event.trigger(_patientShareMap, 'resize');
-  }, 120);
-}
-
-async function deleteWish(wishId) {
-  try {
-    await api.deleteWishlist(wishId);
-    showToast("已刪除心願");
-    loadPatientWishlist();
-  } catch (e) {
-    showToast("⚠️ " + e.message);
-  }
-}
-
-// ════════════════════════════════════════════════
-// 病患心願清單（群眾端）
-// ════════════════════════════════════════════════
-
-function openCrowdWishlist() {
-  document.getElementById("crowdWishlistOverlay").style.display = "block";
-  document.getElementById("crowdWishlistModal").style.display = "flex";
-  loadCrowdWishlist();
-}
-
-function closeCrowdWishlist() {
-  document.getElementById("crowdWishlistOverlay").style.display = "none";
-  document.getElementById("crowdWishlistModal").style.display = "none";
-}
-
-async function loadCrowdWishlist() {
-  const container = document.getElementById("crowdWishlistItems");
-  const currentUser = state.currentUser;
-  container.innerHTML = '<div style="text-align:center;padding:24px;color:#bbb;font-size:0.85rem">載入中…</div>';
-  try {
-    const data = await api.getAllWishlists();
-    const wishes = data.wishlists || [];
-    if (!wishes.length) {
-      container.innerHTML = '<div style="text-align:center;padding:30px;color:#bbb;font-size:0.85rem">目前沒有待完成的心願 💝</div>';
-      return;
-    }
-    container.innerHTML = wishes.map(w => {
-      const myId = currentUser ? currentUser.id : null;
-      const isMine = myId && w.claimed_by === myId;
-      const otherClaimed = w.claimed_by && !isMine;
-
-      let actionBtn = '';
-      const safeName = (w.place_name || '').replace(/'/g, '&#39;');
-      if (isMine) {
-        actionBtn = `<button onclick="openWishFulfillModal('${w.id}', '${safeName}')"
-           style="padding:9px 14px;border-radius:12px;border:none;cursor:pointer;white-space:nowrap;
-                  background:linear-gradient(135deg,#2d8f61,#27ae60);color:white;
-                  font-weight:800;font-size:0.83rem;font-family:inherit;
-                  box-shadow:0 2px 6px rgba(45,143,97,0.4)">
-           📤 上傳成果
-         </button>`;
-      } else if (otherClaimed) {
-        actionBtn = `<div style="padding:6px 12px;background:#fff3cd;border-radius:10px;font-size:0.77rem;color:#e67e22;font-weight:700;white-space:nowrap">🙌 已認領</div>`;
-      } else {
-        actionBtn = `<button onclick="claimWish('${w.id}', '${safeName}')"
-           style="padding:9px 16px;border-radius:12px;border:none;cursor:pointer;white-space:nowrap;
-                  background:linear-gradient(135deg,#f5a623,#ffc83a);color:white;
-                  font-weight:800;font-size:0.85rem;font-family:inherit;
-                  box-shadow:0 2px 6px rgba(245,166,35,0.4)">
-           💪 我去拍！
-         </button>`;
-      }
-
-      const borderColor = isMine ? '#2d8f61' : otherClaimed ? '#ffc83a' : '#f0e8d8';
-      return `
-        <div style="background:#fffbf4;border:1.5px solid ${borderColor};
-                    border-radius:13px;padding:14px 16px;margin-bottom:12px">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap">
-            <div style="flex:1;min-width:0">
-              <div style="font-size:0.75rem;color:#aaa;margin-bottom:3px">🏥 ${escHtml(w.patient_bed)}</div>
-              <div style="font-weight:800;font-size:1rem;color:#333;margin-bottom:4px">📍 ${escHtml(w.place_name)}</div>
-              ${w.description ? `<div style="font-size:0.83rem;color:#666;line-height:1.4">${escHtml(w.description)}</div>` : ''}
-              <div style="font-size:0.72rem;color:#bbb;margin-top:5px">🕐 ${w.created_at}</div>
-              ${isMine ? '<div style="font-size:0.73rem;color:#2d8f61;font-weight:700;margin-top:3px">✅ 你已認領 — 請出發並上傳成果</div>' : ''}
-            </div>
-            <div style="flex-shrink:0">${actionBtn}</div>
-          </div>
-        </div>`;
-    }).join("");
-  } catch (e) {
-    container.innerHTML = '<div style="text-align:center;padding:24px;color:#e74c3c;font-size:0.83rem">載入失敗，請重試</div>';
-  }
-}
-
-async function claimWish(wishId, placeName) {
-  const user = state.currentUser;
-  if (!user) { showToast("請先登入"); return; }
-  try {
-    const data = await api.claimWishlist(wishId, user.id);
-    const wish = data.wish || {};
-    showToast("已認領！可先錄出發前語音，完成後上傳成果 📹", 3500);
-    openWishFulfillModal(wishId, placeName || wish.place_name || "心願地點");
-  } catch (e) {
-    showToast("⚠️ " + e.message);
-  }
-}
-
-// ════════════════════════════════════════════════
-// 心願履行 Modal（志工端）：出發前語音 + 上傳成果影片
-// ════════════════════════════════════════════════
-
-let _wishFulfillId = null;
-let _preVoiceRecorder = null;
-let _preVoiceBlob = null;
-let _preVoiceStream = null;
-
-function openWishFulfillModal(wishId, placeName) {
-  _wishFulfillId = wishId;
-  _preVoiceBlob = null;
-  const el = id => document.getElementById(id);
-  el("wishFulfillPlaceName").textContent = `📍 ${placeName || "心願地點"}`;
-  el("preVoiceStatus").textContent = "";
-  el("preVoicePlayback").style.display = "none";
-  el("preVoicePlayback").src = "";
-  el("btnPreVoiceRec").style.display = "";
-  el("btnPreVoiceStop").style.display = "none";
-  el("btnPreVoiceSend").style.display = "none";
-  el("btnWishUpload").style.display = "none";
-  el("wishFulfillProgress").textContent = "";
-  const fi = el("wishFulfillFileInput");
-  if (fi) fi.value = "";
-  el("wishFulfillOverlay").style.display = "block";
-  el("wishFulfillModal").style.display = "block";
-}
-
-function closeWishFulfillModal() {
-  document.getElementById("wishFulfillOverlay").style.display = "none";
-  document.getElementById("wishFulfillModal").style.display = "none";
-  if (_preVoiceStream) {
-    _preVoiceStream.getTracks().forEach(t => t.stop());
-    _preVoiceStream = null;
-  }
-}
-
-async function startPreVoiceRecord() {
-  try {
-    _preVoiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    _preVoiceRecorder = new MediaRecorder(_preVoiceStream);
-    const chunks = [];
-    _preVoiceRecorder.ondataavailable = e => chunks.push(e.data);
-    _preVoiceRecorder.onstop = () => {
-      _preVoiceBlob = new Blob(chunks, { type: "audio/webm" });
-      const url = URL.createObjectURL(_preVoiceBlob);
-      const pb = document.getElementById("preVoicePlayback");
-      pb.src = url;
-      pb.style.display = "block";
-      document.getElementById("btnPreVoiceSend").style.display = "";
-      document.getElementById("preVoiceStatus").textContent = "✅ 錄音完成，可試聽後傳送";
-    };
-    _preVoiceRecorder.start();
-    document.getElementById("btnPreVoiceRec").style.display = "none";
-    document.getElementById("btnPreVoiceStop").style.display = "";
-    document.getElementById("preVoiceStatus").textContent = "🔴 錄音中…";
-  } catch {
-    showToast("⚠️ 無法存取麥克風，請確認瀏覽器權限");
-  }
-}
-
-function stopPreVoiceRecord() {
-  if (_preVoiceRecorder && _preVoiceRecorder.state !== "inactive") {
-    _preVoiceRecorder.stop();
-  }
-  if (_preVoiceStream) {
-    _preVoiceStream.getTracks().forEach(t => t.stop());
-    _preVoiceStream = null;
-  }
-  document.getElementById("btnPreVoiceStop").style.display = "none";
-}
-
-async function sendPreVoice() {
-  const user = state.currentUser;
-  if (!_preVoiceBlob || !_wishFulfillId || !user) return;
-  const btn = document.getElementById("btnPreVoiceSend");
-  btn.textContent = "傳送中…";
-  btn.disabled = true;
-  try {
-    await api.uploadWishPreVoice(_wishFulfillId, user.id, _preVoiceBlob);
-    document.getElementById("preVoiceStatus").textContent = "📤 語音已傳給病患！";
-    btn.style.display = "none";
-    showToast("🎙 出發前語音已傳送！");
-  } catch (e) {
-    showToast("⚠️ 傳送失敗：" + e.message);
-    btn.textContent = "📤 傳給病患";
-    btn.disabled = false;
-  }
-}
-
-// 心願成果影片 file picker
-(function () {
-  function bindWishFulfillInput() {
-    const fi = document.getElementById("wishFulfillFileInput");
-    if (!fi) return;
-    fi.addEventListener("change", e => {
-      const f = e.target.files[0];
-      if (f) {
-        document.getElementById("btnWishUpload").style.display = "";
-        document.getElementById("wishFulfillProgress").textContent = `已選擇：${f.name}`;
-      }
-    });
-  }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", bindWishFulfillInput);
-  } else {
-    bindWishFulfillInput();
-  }
-})();
-
-async function uploadFulfillVideo() {
-  const user = state.currentUser;
-  const fi = document.getElementById("wishFulfillFileInput");
-  if (!fi || !fi.files[0]) { showToast("⚠️ 請先選擇影片"); return; }
-  if (!_wishFulfillId || !user) return;
-  const prog = document.getElementById("wishFulfillProgress");
-  const btn = document.getElementById("btnWishUpload");
-  prog.textContent = "上傳中，請稍候…";
-  btn.disabled = true;
-  try {
-    await api.fulfillWishlist(_wishFulfillId, user.id, fi.files[0]);
-    showToast("🎉 成果已上傳！病患可以觀看了", 3500);
-    closeWishFulfillModal();
-    closeCrowdWishlist();
-  } catch (e) {
-    prog.textContent = "";
-    btn.disabled = false;
-    showToast("⚠️ 上傳失敗：" + e.message);
-  }
 }
 
 console.log("✅ 安心醫伴 app.js 載入完成");
@@ -5712,15 +5943,19 @@ const _emdr = {
   msgTimestamps: [], camTimestamps: [],
   watchStart: null, watchTimer: null, triggered: false,
 };
-const EMDR_MSG_COUNT  = 3;
+const EMDR_MSG_COUNT  = 5;
 const EMDR_MSG_WINDOW = 5 * 60 * 1000;
 const EMDR_CAM_COUNT  = 5;
 const EMDR_CAM_WINDOW = 2 * 60 * 1000;
-const EMDR_WATCH_SEC  = 180;
+const EMDR_WATCH_SEC  = 300;  // 5 分鐘
+
+function _emdrOnAllowedScreen() {
+  return document.getElementById('screen-anyview')?.classList.contains('active') ||
+         document.getElementById('screen-medical')?.classList.contains('active');
+}
 
 function emdrTrack(type) {
-  if (!document.getElementById('screen-view')?.classList.contains('active') &&
-      !document.getElementById('screen-medical')?.classList.contains('active')) return;
+  if (!_emdrOnAllowedScreen()) return;
   if (_emdr.triggered) return;
   const now = Date.now();
   if (type === 'msg') {
@@ -5737,6 +5972,7 @@ function emdrTrack(type) {
 function emdrWatchStart() {
   emdrWatchStop();
   if (_emdr.triggered) return;
+  if (!_emdrOnAllowedScreen()) return;
   _emdr.watchTimer = setTimeout(() => { if (!_emdr.triggered) showEmdr('長時間持續觀看影片'); }, EMDR_WATCH_SEC * 1000);
 }
 function emdrWatchStop() {
@@ -5850,7 +6086,15 @@ function emdrToggleAudio() {
   if (btn) btn.textContent = _emdrEng.audioEnabled ? '🔊 音效：開' : '🔇 音效：關';
 }
 
+function triggerEmdrManual() {
+  showEmdr('手動開啟眼動練習');
+}
+
 function showEmdr(reason) {
+  // 只在任意視界或醫聲相伴才顯示
+  const onAnyview = document.getElementById('screen-anyview')?.classList.contains('active');
+  const onMedical = document.getElementById('screen-medical')?.classList.contains('active');
+  if (!onAnyview && !onMedical) { emdrWatchStop(); return; }
   _emdr.triggered = true;
   emdrWatchStop();
   const overlay  = document.getElementById('emdrOverlay');
@@ -5870,6 +6114,7 @@ function showEmdr(reason) {
 }
 
 function closeEmdr() {
+  emdrWatchStop();  // 務必清除 180s 觀看計時器，避免在其他頁面觸發
   if (_emdrEng.raf) { cancelAnimationFrame(_emdrEng.raf); _emdrEng.raf = null; }
   // 關閉 AudioContext 釋放資源
   if (_emdrEng.audioCtx) { _emdrEng.audioCtx.close(); _emdrEng.audioCtx = null; }

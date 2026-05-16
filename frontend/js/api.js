@@ -95,9 +95,16 @@ const api = {
     return res.json();
   },
 
-  async sendPatientMessage(patientId, bed, emotion, text = "", doctorId = null, _unused = null, ttasLevel = 3, ttasCategory = "常規護理", ttasSummary = "") {
+  async sendPatientMessage(patientId, bed, emotion, text = "", doctorId = null, _unused = null, ttasLevel = 3, ttasCategory = "常規護理", ttasSummary = "", ttasFullResult = null) {
     const body = { patient_id: patientId, bed, emotion, text, doctor_id: doctorId,
-                   ttas_level: ttasLevel, ttas_category: ttasCategory, ttas_summary: ttasSummary };
+                   ttas_level: ttasLevel, ttas_category: ttasCategory, ttas_summary: ttasSummary,
+                   nrs_estimated: ttasFullResult?.nrs_estimated ?? null,
+                   bsrs_estimated: ttasFullResult?.bsrs_estimated ?? null,
+                   pcs_level: ttasFullResult?.pcs_level ?? null,
+                   urgency_flags: ttasFullResult?.urgency_flags ?? [],
+                   self_harm_detected: ttasFullResult?.self_harm_detected ?? false,
+                   ttas_reasoning: ttasFullResult?.ttas_reasoning ?? ttasFullResult?.reasoning ?? "",
+                   route: ttasFullResult?.route ?? "" };
     const res = await fetch(`${BASE_URL}/api/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -313,74 +320,4 @@ const api = {
     return res.json();
   },
 
-  // ── 病患心願清單 ─────────────────────────────────
-  async getPatientWishlist(patientId) {
-    const res = await fetch(`${BASE_URL}/api/wishlist/${encodeURIComponent(patientId)}`);
-    if (!res.ok) throw new Error("載入心願清單失敗");
-    return res.json();
-  },
-
-  async getAllWishlists() {
-    const res = await fetch(`${BASE_URL}/api/wishlist/all`);
-    if (!res.ok) throw new Error("載入所有心願失敗");
-    return res.json();
-  },
-
-  async addWishlist(data) {
-    const res = await fetch(`${BASE_URL}/api/wishlist`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error("新增心願失敗");
-    return res.json();
-  },
-
-  async deleteWishlist(wishId) {
-    const res = await fetch(`${BASE_URL}/api/wishlist/${encodeURIComponent(wishId)}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "刪除心願失敗");
-    }
-    return res.json();
-  },
-
-  async claimWishlist(wishId, crowdId) {
-    const res = await fetch(`${BASE_URL}/api/wishlist/${encodeURIComponent(wishId)}/claim`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ crowd_id: crowdId }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "認領失敗");
-    }
-    return res.json();
-  },
-
-  async uploadWishPreVoice(wishId, crowdId, audioBlob) {
-    const fd = new FormData();
-    fd.append("crowd_id", crowdId);
-    fd.append("file", audioBlob, "voice.webm");
-    const res = await fetch(`${BASE_URL}/api/wishlist/${encodeURIComponent(wishId)}/pre-voice`, {
-      method: "POST",
-      body: fd,
-    });
-    if (!res.ok) throw new Error("上傳語音失敗");
-    return res.json();
-  },
-
-  async fulfillWishlist(wishId, crowdId, file) {
-    const fd = new FormData();
-    fd.append("crowd_id", crowdId);
-    fd.append("file", file);
-    const res = await fetch(`${BASE_URL}/api/wishlist/${encodeURIComponent(wishId)}/fulfill`, {
-      method: "POST",
-      body: fd,
-    });
-    if (!res.ok) throw new Error("上傳成果失敗");
-    return res.json();
-  },
 };

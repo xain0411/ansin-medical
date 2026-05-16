@@ -13,8 +13,9 @@ __pycache__/
 # API Keys
 .env
 
-# Claude Code 工作樹備份
+# Claude Code 工作樹備份與本機設定
 .claude/worktrees/
+.claude/settings.local.json
 
 # Git worktrees
 .worktrees/
@@ -22,3 +23,6 @@ __pycache__/
 # OS 暫存
 .DS_Store
 Thumbs.db
+
+# 企畫書（本機文件，不入版本控制）
+*.pdf
