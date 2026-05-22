@@ -182,13 +182,7 @@ function showSkeleton(containerId, count = 3) {
 
 // ── 角色選擇（直接自動登入，無需登入畫面）──────────
 document.querySelectorAll(".role-card").forEach((card) => {
-  card.addEventListener("click", () => {
-    const role = card.dataset.role;
-    if (role === "patient") autoLogin("patient_503B", "123", "503-B");
-    else if (role === "doctor") autoLogin("doctor_004", "123");
-    else if (role === "crowd") autoLogin("crowd_001", "123");
-    else if (role === "nurse") autoLogin("nurse_001", "123");
-  });
+  card.addEventListener("click", () => openAuthLogin(card.dataset.role));
 });
 
 // ── 返回按鈕 ──────────────────────────────────────
@@ -232,56 +226,52 @@ document.querySelectorAll(".avatar-btn").forEach((btn) => {
 
 // ── 自動登入（統一入口）──────────────────────────────
 async function autoLogin(userId, password, bed = "") {
-  try {
-    const data = await api.login(userId, password, bed);
-    const u = data.user;
-    state.currentUser = u;
-    connectWS(u.id);
+  const data = await api.login(userId, password, bed);
+  const u = data.user;
+  state.currentUser = u;
+  connectWS(u.id);
 
-    if (u.role === "patient") {
-      const userBed = u.bed || bed || "503-B";
-      const bedTag = document.getElementById("patientBedTag");
-      if (bedTag) bedTag.textContent = userBed + "號病房";
-      const welcomeNameEl = document.getElementById("welcomeName");
-      if (welcomeNameEl) {
-        const fullName = u.name || '';
-        const masked = fullName.length >= 2 ? fullName[0] + '○' + fullName.slice(2) : fullName || '貴賓';
-        welcomeNameEl.textContent = masked;
-      }
-      const dateEl = document.getElementById("currentDateDisplay");
-      if (dateEl) {
-        const d = new Date();
-        dateEl.textContent = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
-      }
-      goTo("screen-patient-home");
-
-    } else if (u.role === "doctor") {
-      _doctorType = u.doctor_type || 'resident';
-      const badge = document.getElementById('doctorTypeBadge');
-      if (badge) {
-        const isResident = _doctorType === 'resident';
-        badge.textContent = isResident ? '🩻 住院醫師' : '👨‍⚕️ 主治醫師';
-        badge.style.background = isResident ? '#2471a3' : '#8e44ad';
-      }
-      const welcomeEl = document.getElementById("doctorWelcomeText");
-      if (welcomeEl) {
-        const fullName = u.name || '醫師';
-        const masked = fullName.length >= 2 ? fullName[0] + '○' + fullName.slice(2) : fullName;
-        welcomeEl.textContent = `歡迎，${u.dept || ''}${masked} 醫師　|　今日待辦請求如下`;
-      }
-      await loadDoctorList();
-      goTo("screen-doctor");
-
-    } else if (u.role === "nurse") {
-      await loadNurseMessages();
-      goTo("screen-nurse");
-
-    } else if (u.role === "crowd") {
-      await loadCrowdData();
-      goTo("screen-crowd");
+  if (u.role === "patient") {
+    const userBed = u.bed || bed || "503-B";
+    const bedTag = document.getElementById("patientBedTag");
+    if (bedTag) bedTag.textContent = userBed + "號病房";
+    const welcomeNameEl = document.getElementById("welcomeName");
+    if (welcomeNameEl) {
+      const fullName = u.name || '';
+      const masked = fullName.length >= 2 ? fullName[0] + '○' + fullName.slice(2) : fullName || '貴賓';
+      welcomeNameEl.textContent = masked;
     }
-  } catch {
-    showToast("⚠️ 登入失敗，請稍後再試");
+    const dateEl = document.getElementById("currentDateDisplay");
+    if (dateEl) {
+      const d = new Date();
+      dateEl.textContent = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+    }
+    goTo("screen-patient-home");
+
+  } else if (u.role === "doctor") {
+    _doctorType = u.doctor_type || 'resident';
+    const badge = document.getElementById('doctorTypeBadge');
+    if (badge) {
+      const isResident = _doctorType === 'resident';
+      badge.textContent = isResident ? '🩻 住院醫師' : '👨‍⚕️ 主治醫師';
+      badge.style.background = isResident ? '#2471a3' : '#8e44ad';
+    }
+    const welcomeEl = document.getElementById("doctorWelcomeText");
+    if (welcomeEl) {
+      const fullName = u.name || '醫師';
+      const masked = fullName.length >= 2 ? fullName[0] + '○' + fullName.slice(2) : fullName;
+      welcomeEl.textContent = `歡迎，${u.dept || ''}${masked} 醫師　|　今日待辦請求如下`;
+    }
+    await loadDoctorList();
+    goTo("screen-doctor");
+
+  } else if (u.role === "nurse") {
+    await loadNurseMessages();
+    goTo("screen-nurse");
+
+  } else if (u.role === "crowd") {
+    await loadCrowdData();
+    goTo("screen-crowd");
   }
 }
 
@@ -4598,7 +4588,7 @@ document.getElementById("btnMedical")?.addEventListener("click", () => goTo("scr
 document.getElementById("btnCrowd")?.addEventListener("click", () => goTo("screen-crowd"));
 
 // ════════════════════════════════════════════════
-// 認證：註冊 / 忘記密碼
+// 認證：登入 / 註冊 / 忘記密碼
 // ════════════════════════════════════════════════
 const _authRoleConfig = {
   patient: { icon: '😊', label: '病患端',     extraId: 'regBed',      extraLabel: '床號',   extraPlaceholder: '床號（如 503-B，請洽護理站）' },
@@ -4608,6 +4598,103 @@ const _authRoleConfig = {
 };
 let _authRole  = 'patient';
 let _forgotOtp = '';
+
+// ── 登入 Modal ────────────────────────────────────
+let _loginRole = 'patient';
+
+const _loginDemoHints = {
+  patient: [
+    { account: 'patient_503B', name: '王小明', note: '503-B・台北總院' },
+    { account: 'patient_504A', name: '陳美玲', note: '504-A・台北總院' },
+    { account: 'patient_510C', name: '林俊宏', note: '510-C・台北總院' },
+  ],
+  doctor: [
+    { account: 'doctor_004', name: '王主治醫師', note: '主治・骨科・台北總院' },
+    { account: 'doctor_001', name: '林醫師',     note: '住院・骨科・台北總院' },
+    { account: 'doctor_002', name: '陳醫師',     note: '住院・外科・台中分院' },
+    { account: 'doctor_003', name: '李醫師',     note: '主治・骨科・高雄分院' },
+  ],
+  nurse: [
+    { account: 'nurse_001', name: '李護理師', note: '台北總院' },
+    { account: 'nurse_002', name: '王護理師', note: '台中分院' },
+  ],
+  crowd: [
+    { account: 'crowd_001', name: '張大志', note: '2,610 pt' },
+    { account: 'crowd_002', name: '李志明', note: '3,890 pt' },
+    { account: 'crowd_003', name: '陳小芬', note: '1,560 pt' },
+    { account: 'crowd_004', name: '王建國', note: '820 pt' },
+    { account: 'crowd_005', name: '林美惠', note: '5,200 pt' },
+    { account: 'crowd_006', name: '黃俊豪', note: '980 pt' },
+    { account: 'crowd_007', name: '吳雅婷', note: '4,100 pt' },
+  ],
+};
+
+function openAuthLogin(role) {
+  _loginRole = role || 'patient';
+  const cfg = _authRoleConfig[_loginRole];
+  document.getElementById('loginRoleIcon').textContent  = cfg.icon;
+  document.getElementById('loginRoleLabel').textContent = cfg.label;
+  document.getElementById('loginAccount').value  = '';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginError').style.display   = 'none';
+  document.getElementById('demoHintBox').style.display   = 'none';
+  document.getElementById('demoHintArrow').textContent   = '▼';
+
+  const colors = {
+    patient: 'linear-gradient(135deg,#2d8f61,#38af7a)',
+    doctor:  'linear-gradient(135deg,#667eea,#764ba2)',
+    crowd:   'linear-gradient(135deg,#f5a623,#ffc83a)',
+    nurse:   'linear-gradient(135deg,#d64d80,#e891bb)',
+  };
+  document.getElementById('loginSubmitBtn').style.background = colors[_loginRole] || colors.patient;
+
+  const hints = _loginDemoHints[_loginRole] || [];
+  document.getElementById('demoHintBox').innerHTML =
+    `<div style="font-weight:700;color:#bbb;margin-bottom:2px;font-size:0.72rem">Demo 模式：任意密碼均可登入</div>` +
+    hints.map(h =>
+      `<div style="cursor:pointer;border-radius:6px;padding:1px 4px;transition:background 0.15s"
+            onmouseover="this.style.background='#eef'"
+            onmouseout="this.style.background=''"
+            onclick="document.getElementById('loginAccount').value='${h.account}';document.getElementById('loginPassword').focus()">
+        <strong>${h.account}</strong>　${h.name}　<span style="color:#bbb">${h.note}</span>
+       </div>`
+    ).join('');
+
+  document.getElementById('authLoginModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('loginAccount').focus(), 80);
+}
+
+function closeAuthLogin() {
+  document.getElementById('authLoginModal').style.display = 'none';
+}
+
+function toggleDemoHint() {
+  const box   = document.getElementById('demoHintBox');
+  const arrow = document.getElementById('demoHintArrow');
+  const show  = box.style.display === 'none';
+  box.style.display  = show ? 'block' : 'none';
+  arrow.textContent  = show ? '▲' : '▼';
+}
+
+async function submitLogin() {
+  const account = document.getElementById('loginAccount').value.trim();
+  const password = document.getElementById('loginPassword').value || 'demo';
+  const errEl   = document.getElementById('loginError');
+  errEl.style.display = 'none';
+  if (!account) { errEl.textContent = '請輸入帳號'; errEl.style.display = 'block'; return; }
+  const btn = document.getElementById('loginSubmitBtn');
+  btn.disabled = true; btn.textContent = '登入中…';
+  try {
+    await autoLogin(account, password);
+    closeAuthLogin();
+  } catch(e) {
+    const msg = e?.message || '';
+    errEl.textContent = msg.includes('帳號') ? msg : '帳號不存在，請確認輸入是否正確';
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = '登入 →';
+  }
+}
 
 function openAuthRegister(role) {
   _authRole = role || 'patient';

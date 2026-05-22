@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(python -c \":*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(head -10 grep -n \"setInterval\\\\|polling\\\\|fetchNotif\" \"e:/2026全國電子競賽/安心醫伴新視界/ansin-medical/frontend/js/app.js\")",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }

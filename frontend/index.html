@@ -1379,6 +1379,53 @@
     </div>
   </div>
 
+  <!-- ══ 登入 Modal ════════════════════════════════════ -->
+  <div class="modal-overlay" id="authLoginModal" style="display:none;z-index:9999">
+    <div class="modal-box" style="max-width:min(400px,93vw);padding:24px 22px 20px">
+      <button class="modal-close" onclick="closeAuthLogin()">✕</button>
+      <div style="text-align:center;margin-bottom:18px">
+        <div id="loginRoleIcon" style="font-size:2.8rem;line-height:1;margin-bottom:6px">📋</div>
+        <div style="font-weight:900;font-size:1.05rem;color:#333">登入</div>
+        <div id="loginRoleLabel" style="font-size:0.75rem;color:#888;margin-top:3px"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <input id="loginAccount" type="text" placeholder="請輸入帳號"
+          onkeydown="if(event.key==='Enter')document.getElementById('loginPassword').focus()"
+          style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                 font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box" />
+        <input id="loginPassword" type="password" placeholder="請輸入密碼"
+          onkeydown="if(event.key==='Enter')submitLogin()"
+          style="padding:10px 13px;border:1.5px solid #e0e0e0;border-radius:10px;
+                 font-size:0.9rem;font-family:inherit;outline:none;width:100%;box-sizing:border-box" />
+      </div>
+      <div id="loginError" style="display:none;color:#e74c3c;font-size:0.78rem;margin-top:8px;
+               padding:6px 10px;background:#fff3f3;border-radius:8px"></div>
+      <button onclick="submitLogin()" id="loginSubmitBtn"
+        style="width:100%;margin-top:14px;padding:12px;border-radius:12px;border:none;cursor:pointer;
+               font-weight:900;font-size:0.95rem;font-family:inherit;color:white;
+               background:linear-gradient(135deg,#5b8dd9,#4a78c5);
+               box-shadow:0 3px 12px rgba(91,141,217,0.35)">
+        登入 →
+      </button>
+      <!-- 示範帳號折疊區 -->
+      <div style="margin-top:14px;border-top:1px solid #f0f0f0;padding-top:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer"
+          onclick="toggleDemoHint()">
+          <span style="font-size:0.78rem;color:#bbb">示範帳號</span>
+          <span id="demoHintArrow" style="font-size:0.72rem;color:#ccc">▼</span>
+        </div>
+        <div id="demoHintBox" style="display:none;margin-top:8px;background:#f8f9fa;
+                 border-radius:8px;padding:10px;font-size:0.75rem;color:#777;line-height:2"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:0.76rem">
+        <span style="color:#aaa;cursor:pointer"
+          onclick="closeAuthLogin();openAuthRegister(_loginRole)">建立帳號</span>
+        <span style="color:#aaa;cursor:pointer"
+          onclick="closeAuthLogin();openAuthForgot(_loginRole)">忘記密碼</span>
+      </div>
+    </div>
+  </div>
+
   <!-- ══ 忘記密碼 Modal ══════════════════════════════ -->
   <div class="modal-overlay" id="authForgotModal" style="display:none;z-index:9999">
     <div class="modal-box" style="max-width:min(380px,93vw);padding:24px 22px 20px">
